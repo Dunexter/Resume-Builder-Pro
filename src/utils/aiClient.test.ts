@@ -63,6 +63,24 @@ describe('callAIChat / callAIText', () => {
     await expect(callAIText('hi', { provider: 'openai', apiKey: 'bad-key' })).rejects.toMatchObject({ code: 'unauthorized' });
   });
 
+  it('throws AIServiceError with not_found code on 404 and surfaces the provider message', async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 404,
+      clone: () => ({ json: async () => ({ error: { message: 'models/gemini-2.5-pro is not found for API version v1beta' } }) }),
+    }) as unknown as typeof fetch;
+
+    await expect(callAIText('hi', { provider: 'gemini', apiKey: 'AIza-test' })).rejects.toMatchObject({
+      code: 'not_found',
+      message: expect.stringContaining('gemini-2.5-pro is not found'),
+    });
+  });
+
+  it('falls back to a generic 404 message when the body cannot be parsed', async () => {
+    global.fetch = vi.fn().mockResolvedValue({ ok: false, status: 404 }) as unknown as typeof fetch;
+    await expect(callAIText('hi', { provider: 'gemini', apiKey: 'AIza-test' })).rejects.toMatchObject({ code: 'not_found' });
+  });
+
   it('passes full chat history through to the provider', async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,

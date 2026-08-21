@@ -46,7 +46,7 @@ export async function callAIChat(
     } catch {
       throw new AIServiceError('Network error — could not reach OpenAI.', 'network');
     }
-    if (!res.ok) throw mapFetchError(res);
+    if (!res.ok) throw await mapFetchError(res);
     const json = await res.json();
     const text = json.choices?.[0]?.message?.content?.trim();
     if (!text) throw new AIServiceError('OpenAI returned an empty response.', 'unknown');
@@ -76,7 +76,7 @@ export async function callAIChat(
     } catch {
       throw new AIServiceError('Network error — could not reach Gemini.', 'network');
     }
-    if (!res.ok) throw mapFetchError(res);
+    if (!res.ok) throw await mapFetchError(res);
     const json = await res.json();
     const text = json.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
     if (!text) throw new AIServiceError('Gemini returned an empty response.', 'unknown');

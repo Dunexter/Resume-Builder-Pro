@@ -214,6 +214,19 @@ const AISettingsForm: React.FC = () => {
                   autoFocus
                 />
               )}
+              <p className={`text-xs mt-1.5 ${dm ? 'text-gray-500' : 'text-gray-400'}`}>
+                Getting a "model not found" (404) error? Your key may not have access to that model yet — try{' '}
+                {aiSettings.provider === 'openai' ? 'gpt-4o-mini' : 'gemini-1.5-flash'}, or check{' '}
+                <a
+                  href={aiSettings.provider === 'openai' ? 'https://platform.openai.com/docs/models' : 'https://ai.google.dev/gemini-api/docs/models'}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-indigo-500 hover:underline"
+                >
+                  available models
+                </a>{' '}
+                for your key.
+              </p>
             </div>
 
             <button
