@@ -8,6 +8,7 @@ import PreviewContainer from './components/Preview/PreviewContainer';
 import TemplateGallery from './components/Modals/TemplateGallery';
 import ResumeManager from './components/Modals/ResumeManager';
 import CoverLetterBuilder from './components/Modals/CoverLetterBuilder';
+import JobFinderBot from './components/Modals/JobFinderBot';
 import WelcomeModal from './components/Modals/WelcomeModal';
 import VersionHistoryModal from './components/Modals/VersionHistoryModal';
 import { useAutoSave } from './hooks';
@@ -28,6 +29,7 @@ const AppContent: React.FC = () => {
   const darkMode = useAppSelector(state => state.resume.settings.darkMode);
   const showTemplateGallery = useAppSelector(state => state.resume.showTemplateGallery);
   const showCoverLetterBuilder = useAppSelector(state => state.resume.showCoverLetterBuilder);
+  const showJobFinderBot = useAppSelector(state => state.resume.showJobFinderBot);
   const [showResumeManager, setShowResumeManager] = useState(false);
   const [showVersions, setShowVersions] = useState(false);
   const [booting, setBooting] = useState(true);
@@ -142,6 +144,7 @@ const AppContent: React.FC = () => {
 
       {showTemplateGallery && <TemplateGallery />}
       {showCoverLetterBuilder && <CoverLetterBuilder />}
+      {showJobFinderBot && <JobFinderBot />}
       {showResumeManager && <ResumeManager onClose={() => setShowResumeManager(false)} />}
       {showVersions && <VersionHistoryModal onClose={() => setShowVersions(false)} />}
       {showWelcome && (

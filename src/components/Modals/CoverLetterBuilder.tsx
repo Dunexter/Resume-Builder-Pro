@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { X, Download, Copy, Sparkles, Loader } from 'lucide-react';
 import { useAppDispatch, useAppSelector } from '../../hooks';
 import { setShowCoverLetterBuilder } from '../../store/resumeSlice';
+import { callAIText } from '../../utils/aiClient';
 
 const COVER_LETTER_TEMPLATES = [
   {
@@ -91,25 +92,7 @@ Style: ${selectedTemplate === 'concise' ? 'Very concise, 1 paragraph' : selected
 Requirements: ATS-friendly, specific to the role, no generic phrases, include relevant keywords from the job description if provided. Return only the cover letter text.`;
 
       try {
-        let result = '';
-        if (aiSettings.provider === 'openai') {
-          const res = await fetch('https://api.openai.com/v1/chat/completions', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${aiSettings.apiKey}` },
-            body: JSON.stringify({ model: aiSettings.model || 'gpt-4o-mini', messages: [{ role: 'user', content: prompt }], max_tokens: 600, temperature: 0.7 }),
-          });
-          const json = await res.json();
-          result = json.choices?.[0]?.message?.content?.trim() || '';
-        } else if (aiSettings.provider === 'gemini') {
-          const model = aiSettings.model || 'gemini-1.5-flash';
-          const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${aiSettings.apiKey}`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
-          });
-          const json = await res.json();
-          result = json.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
-        }
+        const result = await callAIText(prompt, aiSettings, 600);
         if (result) { setContent(result); setGenerating(false); return; }
       } catch { /* fall through to template */ }
     }

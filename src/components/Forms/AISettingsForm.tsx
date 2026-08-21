@@ -220,6 +220,26 @@ const AISettingsForm: React.FC = () => {
               feature: 'JD matching',
               desc: 'Keyword score is always free/local. AI is not required.',
             },
+            {
+              icon: '🔍',
+              feature: 'AI Resume Review',
+              desc: 'Holistic critique — strengths, weaknesses, and specific recommendations. See "AI Review" in the sidebar.',
+            },
+            {
+              icon: '🎤',
+              feature: 'Interview Prep',
+              desc: 'Generates likely interview questions and answer tips from your resume (and JD if provided).',
+            },
+            {
+              icon: '✉️',
+              feature: 'Cover Letter Builder',
+              desc: 'AI-written cover letters tailored to a company/role, with template fallbacks.',
+            },
+            {
+              icon: '🤖',
+              feature: 'AI Job Finder',
+              desc: 'Chat assistant for job-search strategy, plus live remote job search — click "Find Jobs" in the header.',
+            },
           ].map(item => (
             <div key={item.feature} className={`flex gap-3 p-3 rounded-lg ${dm ? 'bg-gray-700' : 'bg-gray-50'}`}>
               <span className="text-lg">{item.icon}</span>

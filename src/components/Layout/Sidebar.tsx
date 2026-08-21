@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import {
   User, GraduationCap, Briefcase, Code, Trophy, Palette, Plus,
   GripVertical, Eye, EyeOff, Target, Zap, Award, FileSearch,
-  Settings, Bot, ChevronRight, ChevronUp, ChevronDown
+  Settings, Bot, ChevronRight, ChevronUp, ChevronDown, Sparkles
 } from 'lucide-react';
 import { useAppSelector, useAppDispatch } from '../../hooks';
 import { setActiveSection, updateSectionOrder, toggleSectionVisibility, addCustomSection } from '../../store/resumeSlice';
@@ -20,6 +20,7 @@ const SECTION_ICONS: Record<string, React.FC<{ className?: string }>> = {
   custom: Zap,
   ats: Target,
   jdmatcher: FileSearch,
+  aireview: Sparkles,
   aisettings: Bot,
 };
 
@@ -214,6 +215,7 @@ const Sidebar: React.FC<SidebarProps> = ({ mobileOpen = false, onCloseMobile }) 
           ) : undefined}
         />
         <NavBtn id="ats" label="ATS Score" icon={Target} />
+        <NavBtn id="aireview" label="AI Review" icon={Sparkles} />
         <NavBtn id="styling" label="Styling" icon={Palette} />
         <NavBtn id="aisettings" label="AI Settings" icon={Bot} />
       </div>

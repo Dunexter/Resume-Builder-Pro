@@ -45,6 +45,7 @@ const initialState: ResumeState = {
   settings: defaultSettings,
   showTemplateGallery: false,
   showCoverLetterBuilder: false,
+  showJobFinderBot: false,
   history: { past: [], future: [] },
 };
 
@@ -235,6 +236,9 @@ const resumeSlice = createSlice({
     setShowCoverLetterBuilder: (state, action: PayloadAction<boolean>) => {
       state.showCoverLetterBuilder = action.payload;
     },
+    setShowJobFinderBot: (state, action: PayloadAction<boolean>) => {
+      state.showJobFinderBot = action.payload;
+    },
 
     updateStyling: (state, action: PayloadAction<Partial<ResumeData['styling']>>) => {
       state.data.styling = { ...state.data.styling, ...action.payload };
@@ -332,6 +336,7 @@ export const {
   setActiveSection,
   setShowTemplateGallery,
   setShowCoverLetterBuilder,
+  setShowJobFinderBot,
   updateStyling,
   setLastSaved,
   loadResumeData,

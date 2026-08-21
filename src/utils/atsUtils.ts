@@ -1,4 +1,5 @@
 import { ResumeData, JDMatchResult, ATSLintResult, ATSRule, ContentQualityResult, ContentIssue } from '../types/resume';
+import { callAIText } from './aiClient';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Keyword extraction helpers
@@ -643,31 +644,8 @@ Original: ${bullet}
 Rewritten:`;
 
   try {
-    if (aiSettings.provider === 'openai') {
-      const res = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${aiSettings.apiKey}` },
-        body: JSON.stringify({
-          model: aiSettings.model || 'gpt-4o-mini',
-          messages: [{ role: 'user', content: prompt }],
-          max_tokens: 200,
-          temperature: 0.7,
-        }),
-      });
-      const json = await res.json();
-      return json.choices?.[0]?.message?.content?.trim() || rewriteBulletRuleBased(bullet);
-    }
-
-    if (aiSettings.provider === 'gemini') {
-      const model = aiSettings.model || 'gemini-1.5-flash';
-      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${aiSettings.apiKey}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
-      });
-      const json = await res.json();
-      return json.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || rewriteBulletRuleBased(bullet);
-    }
+    const result = await callAIText(prompt, aiSettings, 200);
+    return result || rewriteBulletRuleBased(bullet);
   } catch (err) {
     console.error('AI rewrite failed, falling back to rule-based:', err);
   }
@@ -698,31 +676,8 @@ Experience: ${yearsExp} years at ${companies}
 Top Skills: ${topSkills}`;
 
   try {
-    if (aiSettings.provider === 'openai') {
-      const res = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${aiSettings.apiKey}` },
-        body: JSON.stringify({
-          model: aiSettings.model || 'gpt-4o-mini',
-          messages: [{ role: 'user', content: prompt }],
-          max_tokens: 200,
-          temperature: 0.7,
-        }),
-      });
-      const json = await res.json();
-      return json.choices?.[0]?.message?.content?.trim() || generateSummaryRuleBased(data);
-    }
-
-    if (aiSettings.provider === 'gemini') {
-      const model = aiSettings.model || 'gemini-1.5-flash';
-      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${aiSettings.apiKey}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
-      });
-      const json = await res.json();
-      return json.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || generateSummaryRuleBased(data);
-    }
+    const result = await callAIText(prompt, aiSettings, 200);
+    return result || generateSummaryRuleBased(data);
   } catch (err) {
     console.error('AI summary failed, falling back:', err);
   }

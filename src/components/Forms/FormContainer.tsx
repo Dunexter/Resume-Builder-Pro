@@ -12,6 +12,7 @@ import StylingForm from './StylingForm';
 import ATSScoreForm from './ATSScoreForm';
 import JDMatcherForm from './JDMatcherForm';
 import AISettingsForm from './AISettingsForm';
+import AIReviewForm from './AIReviewForm';
 
 const FormContainer: React.FC = () => {
   const activeSection = useAppSelector(state => state.resume.activeSection);
@@ -33,6 +34,7 @@ const FormContainer: React.FC = () => {
       case 'styling':        return <StylingForm />;
       case 'ats':            return <ATSScoreForm />;
       case 'jdmatcher':      return <JDMatcherForm />;
+      case 'aireview':       return <AIReviewForm />;
       case 'aisettings':     return <AISettingsForm />;
       default: {
         // Custom sections

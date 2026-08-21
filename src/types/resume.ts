@@ -171,6 +171,7 @@ export interface ResumeState {
   // UI state
   showTemplateGallery: boolean;
   showCoverLetterBuilder: boolean;
+  showJobFinderBot: boolean;
 
   // Undo/redo history (in-memory only, not persisted)
   history: {

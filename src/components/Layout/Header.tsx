@@ -1,10 +1,10 @@
 import React, { useState } from 'react';
 import {
   FileText, Download, Save, Clock, Moon, Sun, Layers,
-  ChevronDown, FileCode, AlignLeft, Sparkles, History, Undo2, Redo2, Menu
+  ChevronDown, FileCode, AlignLeft, Sparkles, History, Undo2, Redo2, Menu, Bot
 } from 'lucide-react';
 import { useAppSelector, useAppDispatch } from '../../hooks';
-import { toggleDarkMode, setLastSaved, setShowTemplateGallery, setShowCoverLetterBuilder, undo, redo } from '../../store/resumeSlice';
+import { toggleDarkMode, setLastSaved, setShowTemplateGallery, setShowCoverLetterBuilder, setShowJobFinderBot, undo, redo } from '../../store/resumeSlice';
 import { saveResume, loadResume } from '../../db/resumeDB';
 import { validateResumeForExport, formatValidationMessage } from '../../utils/validationUtils';
 
@@ -187,6 +187,13 @@ const Header: React.FC<HeaderProps> = ({ onOpenResumeManager, onOpenVersions, on
             >
               <AlignLeft className="h-3.5 w-3.5" />
               Cover Letter
+            </button>
+            <button
+              onClick={() => dispatch(setShowJobFinderBot(true))}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${btnBase}`}
+            >
+              <Bot className="h-3.5 w-3.5" />
+              Find Jobs
             </button>
           </div>
         </div>
