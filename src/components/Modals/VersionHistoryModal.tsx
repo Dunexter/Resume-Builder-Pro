@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react';
-import { X, Camera, RotateCcw, Trash2, Pencil } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { X, Camera, RotateCcw, Trash2, Pencil, GitCompare } from 'lucide-react';
 import { useAppDispatch, useAppSelector } from '../../hooks';
 import { loadResumeData, setLastSaved } from '../../store/resumeSlice';
 import { ResumeVersion } from '../../types/resume';
@@ -9,6 +9,7 @@ import {
   deleteVersion,
   renameVersion,
   getVersionData,
+  diffResumeData,
   MAX_VERSIONS,
 } from '../../utils/versionUtils';
 import { loadResume, saveResume } from '../../db/resumeDB';
@@ -29,8 +30,33 @@ const VersionHistoryModal: React.FC<Props> = ({ onClose }) => {
   const [msg, setMsg] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editLabel, setEditLabel] = useState('');
+  const [compareMode, setCompareMode] = useState(false);
+  const [compareIds, setCompareIds] = useState<string[]>([]);
 
   const dm = darkMode;
+
+  const toggleCompare = (id: string) => {
+    setCompareIds(prev => {
+      if (prev.includes(id)) return prev.filter(x => x !== id);
+      if (prev.length >= 2) return [prev[1], id];
+      return [...prev, id];
+    });
+  };
+
+  const diffEntries = useMemo(() => {
+    if (compareIds.length !== 2) return null;
+    const [firstId, secondId] = compareIds;
+    const first = versions.find(v => v.id === firstId);
+    const second = versions.find(v => v.id === secondId);
+    if (!first || !second) return null;
+    return diffResumeData(first.data, second.data);
+  }, [compareIds, versions]);
+
+  const formatDiffValue = (val: unknown): string => {
+    if (val === undefined) return '(empty)';
+    if (typeof val === 'string') return val.trim() === '' ? '(empty)' : val;
+    return JSON.stringify(val);
+  };
 
   const refresh = async () => {
     const list = await listVersions(activeResumeId);
@@ -120,9 +146,26 @@ const VersionHistoryModal: React.FC<Props> = ({ onClose }) => {
               Up to {MAX_VERSIONS} snapshots per resume (local only)
             </p>
           </div>
-          <button type="button" onClick={onClose} className={`p-2 rounded-xl ${dm ? 'hover:bg-gray-800 text-gray-400' : 'hover:bg-gray-100 text-gray-500'}`}>
-            <X className="h-4 w-4" />
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => {
+                setCompareMode(prev => !prev);
+                setCompareIds([]);
+              }}
+              title="Compare versions"
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium ${
+                compareMode
+                  ? 'bg-indigo-600 text-white'
+                  : dm ? 'hover:bg-gray-800 text-gray-400' : 'hover:bg-gray-100 text-gray-500'
+              }`}
+            >
+              <GitCompare className="h-3.5 w-3.5" /> Compare
+            </button>
+            <button type="button" onClick={onClose} className={`p-2 rounded-xl ${dm ? 'hover:bg-gray-800 text-gray-400' : 'hover:bg-gray-100 text-gray-500'}`}>
+              <X className="h-4 w-4" />
+            </button>
+          </div>
         </div>
 
         <div className={`p-4 border-b space-y-2 ${dm ? 'border-gray-700' : 'border-gray-200'}`}>
@@ -145,6 +188,27 @@ const VersionHistoryModal: React.FC<Props> = ({ onClose }) => {
           {msg && <p className={`text-xs ${dm ? 'text-gray-300' : 'text-gray-600'}`}>{msg}</p>}
         </div>
 
+        {compareMode && (
+          <div className={`px-4 py-2 border-b text-xs ${dm ? 'border-gray-700 text-gray-400' : 'border-gray-200 text-gray-500'}`}>
+            Select two snapshots to compare ({compareIds.length}/2 selected).
+          </div>
+        )}
+
+        {compareMode && diffEntries && (
+          <div className={`p-4 border-b overflow-y-auto max-h-64 space-y-2 ${dm ? 'border-gray-700' : 'border-gray-200'}`}>
+            <h3 className={`text-xs font-bold uppercase tracking-wide ${dm ? 'text-gray-400' : 'text-gray-500'}`}>
+              {diffEntries.length === 0 ? 'No differences found' : `${diffEntries.length} field${diffEntries.length === 1 ? '' : 's'} changed`}
+            </h3>
+            {diffEntries.map((d, i) => (
+              <div key={i} className={`rounded-lg p-2 text-xs ${dm ? 'bg-gray-800' : 'bg-gray-50'}`}>
+                <div className={`font-mono mb-1 ${dm ? 'text-gray-400' : 'text-gray-500'}`}>{d.path}</div>
+                <div className="text-red-500 line-through break-words">{formatDiffValue(d.before)}</div>
+                <div className="text-green-500 break-words">{formatDiffValue(d.after)}</div>
+              </div>
+            ))}
+          </div>
+        )}
+
         <div className="p-4 overflow-y-auto flex-1 space-y-2">
           {loading ? (
             <p className="text-center text-gray-400 text-sm py-8">Loading…</p>
@@ -158,6 +222,16 @@ const VersionHistoryModal: React.FC<Props> = ({ onClose }) => {
                 key={v.id}
                 className={`rounded-xl border p-3 ${dm ? 'border-gray-700 bg-gray-800' : 'border-gray-200 bg-gray-50'}`}
               >
+                {compareMode && (
+                  <label className="flex items-center gap-2 mb-2 text-xs cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={compareIds.includes(v.id)}
+                      onChange={() => toggleCompare(v.id)}
+                    />
+                    <span className={dm ? 'text-gray-400' : 'text-gray-500'}>Select for comparison</span>
+                  </label>
+                )}
                 {editingId === v.id ? (
                   <div className="flex gap-2 mb-2">
                     <input

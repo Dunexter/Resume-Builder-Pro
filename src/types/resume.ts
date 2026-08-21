@@ -171,6 +171,12 @@ export interface ResumeState {
   // UI state
   showTemplateGallery: boolean;
   showCoverLetterBuilder: boolean;
+
+  // Undo/redo history (in-memory only, not persisted)
+  history: {
+    past: ResumeData[];
+    future: ResumeData[];
+  };
 }
 
 export interface JDMatchResult {

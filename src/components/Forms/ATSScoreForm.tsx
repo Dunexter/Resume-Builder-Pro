@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { CheckCircle, AlertCircle, XCircle, Target, RefreshCw, FileText, Shield } from 'lucide-react';
 import { useAppSelector } from '../../hooks';
-import { lintATSCompatibility, checkContentQuality } from '../../utils/atsUtils';
+import { lintATSCompatibility, checkContentQuality, getCategoryScores } from '../../utils/atsUtils';
 import { ATSRule } from '../../types/resume';
 
 const ATSScoreForm: React.FC = () => {
@@ -23,6 +23,7 @@ const ATSScoreForm: React.FC = () => {
   const scoreRing = (s: number) => s >= 80 ? 'stroke-green-500' : s >= 60 ? 'stroke-yellow-500' : 'stroke-red-500';
 
   const categories = [...new Set(lintResult.rules.map(r => r.category))];
+  const categoryScores = getCategoryScores(lintResult.rules);
 
   const dm = darkMode;
   const cardCls = `rounded-xl border p-4 ${dm ? 'border-gray-700 bg-gray-800' : 'border-gray-200 bg-white'}`;
@@ -79,7 +80,12 @@ const ATSScoreForm: React.FC = () => {
         <div className="space-y-4">
           {categories.map(cat => (
             <div key={cat} className={cardCls}>
-              <h3 className={`text-xs font-bold uppercase tracking-wide mb-3 ${dm ? 'text-gray-400' : 'text-gray-500'}`}>{cat}</h3>
+              <div className="flex items-center justify-between mb-3">
+                <h3 className={`text-xs font-bold uppercase tracking-wide ${dm ? 'text-gray-400' : 'text-gray-500'}`}>{cat}</h3>
+                <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${scoreBg(categoryScores[cat])} ${scoreColor(categoryScores[cat])}`}>
+                  {categoryScores[cat]}%
+                </span>
+              </div>
               <div className="space-y-2">
                 {lintResult.rules.filter(r => r.category === cat).map(rule => (
                   <div key={rule.id} className={`flex gap-3 p-2.5 rounded-lg ${

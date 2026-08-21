@@ -1,17 +1,30 @@
-import React from 'react';
-import { Plus, Trash2 } from 'lucide-react';
+import React, { useMemo } from 'react';
+import { Plus, Trash2, Lightbulb } from 'lucide-react';
 import { useAppSelector, useAppDispatch } from '../../hooks';
 import { addSkill, updateSkill, removeSkill } from '../../store/resumeSlice';
 import { SkillEntry } from '../../types/resume';
+import { analyzeSkillGaps } from '../../utils/skillGap';
 
 const SUGGESTED_CATEGORIES = ['Languages', 'Frameworks & Libraries', 'Cloud & DevOps', 'Databases', 'Tools & Platforms', 'Soft Skills', 'Certifications'];
 
 const SkillsForm: React.FC = () => {
   const dispatch = useAppDispatch();
+  const resumeData = useAppSelector(state => state.resume.data);
   const skills = useAppSelector(state => state.resume.data.sections.skills);
   const darkMode = useAppSelector(state => state.resume.settings.darkMode);
 
+  const skillGaps = useMemo(() => analyzeSkillGaps(resumeData), [resumeData]);
+
   const update = (id: string, data: Partial<SkillEntry>) => dispatch(updateSkill({ id, data }));
+
+  const addMissingSkill = (skill: string) => {
+    if (skills.length === 0) {
+      dispatch(addSkill());
+      return;
+    }
+    const last = skills[skills.length - 1];
+    update(last.id, { skills: last.skills ? `${last.skills}, ${skill}` : skill });
+  };
 
   const inputCls = `w-full px-3 py-2 rounded-lg border text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-colors ${
     darkMode ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-500' : 'bg-white border-gray-300 text-gray-900'
@@ -31,6 +44,38 @@ const SkillsForm: React.FC = () => {
       <div className={`p-3 rounded-lg text-xs ${darkMode ? 'bg-indigo-900/30 text-indigo-300' : 'bg-indigo-50 text-indigo-700'}`}>
         <strong>ATS Tip:</strong> Organize skills by category. Separate each skill with a comma. Include 8–15 skills that match the job description keywords.
       </div>
+
+      {skillGaps.length > 0 && (
+        <div className={`rounded-xl border p-4 space-y-3 ${darkMode ? 'border-gray-700 bg-gray-800' : 'border-gray-200 bg-gray-50'}`}>
+          <div className={`flex items-center gap-1.5 text-sm font-semibold ${darkMode ? 'text-white' : 'text-gray-900'}`}>
+            <Lightbulb className="h-4 w-4 text-amber-500" /> Skill gap intelligence
+          </div>
+          <p className={`text-xs ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+            Based on the skills you already listed, here are commonly-paired skills you might be missing.
+          </p>
+          {skillGaps.map(gap => (
+            <div key={gap.cluster}>
+              <div className={`text-xs font-semibold mb-1.5 ${darkMode ? 'text-gray-300' : 'text-gray-600'}`}>{gap.cluster}</div>
+              <div className="flex flex-wrap gap-1">
+                {gap.missing.map(skill => (
+                  <button
+                    key={skill}
+                    type="button"
+                    onClick={() => addMissingSkill(skill)}
+                    className={`text-[10px] px-1.5 py-0.5 rounded flex items-center gap-0.5 transition-colors ${
+                      darkMode
+                        ? 'bg-amber-900/40 text-amber-300 hover:bg-amber-900/70'
+                        : 'bg-amber-100 text-amber-800 hover:bg-amber-200'
+                    }`}
+                  >
+                    <Plus className="h-2.5 w-2.5" /> {skill}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
 
       {skills.map(skill => (
         <div key={skill.id} className={cardCls}>

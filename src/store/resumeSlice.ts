@@ -45,7 +45,10 @@ const initialState: ResumeState = {
   settings: defaultSettings,
   showTemplateGallery: false,
   showCoverLetterBuilder: false,
+  history: { past: [], future: [] },
 };
+
+export const MAX_HISTORY = 50;
 
 const resumeSlice = createSlice({
   name: 'resume',
@@ -288,6 +291,25 @@ const resumeSlice = createSlice({
     toggleDarkMode: (state) => {
       state.settings.darkMode = !state.settings.darkMode;
     },
+
+    /** Internal: called by undoRedoMiddleware right before a mutating action is applied. */
+    pushHistorySnapshot: (state, action: PayloadAction<ResumeData>) => {
+      state.history.past.push(action.payload);
+      if (state.history.past.length > MAX_HISTORY) state.history.past.shift();
+      state.history.future = [];
+    },
+    undo: (state) => {
+      const prev = state.history.past.pop();
+      if (!prev) return;
+      state.history.future.unshift(state.data);
+      state.data = prev;
+    },
+    redo: (state) => {
+      const next = state.history.future.shift();
+      if (!next) return;
+      state.history.past.push(state.data);
+      state.data = next;
+    },
   },
 });
 
@@ -319,6 +341,9 @@ export const {
   updateSettings,
   updateAISettings,
   toggleDarkMode,
+  pushHistorySnapshot,
+  undo,
+  redo,
 } = resumeSlice.actions;
 
 export default resumeSlice.reducer;

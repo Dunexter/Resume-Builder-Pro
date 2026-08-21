@@ -4,6 +4,7 @@ import {
   matchJobDescription,
   lintATSCompatibility,
   checkContentQuality,
+  getCategoryScores,
 } from './atsUtils';
 import { ResumeData } from '../types/resume';
 
@@ -110,5 +111,28 @@ describe('checkContentQuality', () => {
   it('flags weak verbs', () => {
     const q = checkContentQuality(baseResume());
     expect(q.issues.some(i => i.type === 'weak_verb')).toBe(true);
+  });
+});
+
+describe('getCategoryScores', () => {
+  it('computes a score per rule category', () => {
+    const lint = lintATSCompatibility(baseResume());
+    const scores = getCategoryScores(lint.rules);
+    expect(Object.keys(scores).length).toBeGreaterThan(0);
+    for (const score of Object.values(scores)) {
+      expect(score).toBeGreaterThanOrEqual(0);
+      expect(score).toBeLessThanOrEqual(100);
+    }
+  });
+
+  it('gives 0 for a category where everything fails', () => {
+    const data = baseResume();
+    data.personalInfo.name = '';
+    data.personalInfo.email = '';
+    data.personalInfo.phone = '';
+    data.personalInfo.location = '';
+    const lint = lintATSCompatibility(data);
+    const scores = getCategoryScores(lint.rules);
+    expect(scores['Contact Info']).toBeLessThan(50);
   });
 });

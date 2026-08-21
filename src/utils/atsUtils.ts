@@ -312,6 +312,30 @@ export function lintATSCompatibility(data: ResumeData): ATSLintResult {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Per-category score breakdown
+// ─────────────────────────────────────────────────────────────────────────────
+
+export function getCategoryScores(rules: ATSRule[]): Record<string, number> {
+  const byCategory = new Map<string, ATSRule[]>();
+  for (const rule of rules) {
+    const list = byCategory.get(rule.category) || [];
+    list.push(rule);
+    byCategory.set(rule.category, list);
+  }
+
+  const scores: Record<string, number> = {};
+  for (const [category, categoryRules] of byCategory) {
+    const points = categoryRules.reduce((acc, r) => {
+      if (r.status === 'pass') return acc + 1;
+      if (r.status === 'warn') return acc + 0.5;
+      return acc;
+    }, 0);
+    scores[category] = Math.round((points / categoryRules.length) * 100);
+  }
+  return scores;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Content Quality Checker
 // ─────────────────────────────────────────────────────────────────────────────
 

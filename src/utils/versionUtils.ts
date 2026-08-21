@@ -74,3 +74,49 @@ export async function getVersionData(
   const v = record?.versions?.find(x => x.id === versionId);
   return v ? cloneData(v.data) : null;
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Diffing
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface DiffEntry {
+  path: string;
+  before: unknown;
+  after: unknown;
+}
+
+function isPlainObject(val: unknown): val is Record<string, unknown> {
+  return typeof val === 'object' && val !== null && !Array.isArray(val);
+}
+
+/** Generic recursive field-by-field diff between two ResumeData snapshots. */
+export function diffResumeData(a: ResumeData, b: ResumeData): DiffEntry[] {
+  const diffs: DiffEntry[] = [];
+
+  const walk = (path: string, x: unknown, y: unknown) => {
+    if (x === y) return;
+
+    if (isPlainObject(x) && isPlainObject(y)) {
+      const keys = new Set([...Object.keys(x), ...Object.keys(y)]);
+      for (const key of keys) {
+        walk(path ? `${path}.${key}` : key, x[key], y[key]);
+      }
+      return;
+    }
+
+    if (Array.isArray(x) && Array.isArray(y)) {
+      const len = Math.max(x.length, y.length);
+      for (let i = 0; i < len; i++) {
+        walk(`${path}[${i}]`, x[i], y[i]);
+      }
+      return;
+    }
+
+    if (JSON.stringify(x) !== JSON.stringify(y)) {
+      diffs.push({ path, before: x, after: y });
+    }
+  };
+
+  walk('', a, b);
+  return diffs;
+}

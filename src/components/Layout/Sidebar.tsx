@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import {
   User, GraduationCap, Briefcase, Code, Trophy, Palette, Plus,
   GripVertical, Eye, EyeOff, Target, Zap, Award, FileSearch,
-  Settings, Bot, ChevronRight
+  Settings, Bot, ChevronRight, ChevronUp, ChevronDown
 } from 'lucide-react';
 import { useAppSelector, useAppDispatch } from '../../hooks';
 import { setActiveSection, updateSectionOrder, toggleSectionVisibility, addCustomSection } from '../../store/resumeSlice';
@@ -23,7 +23,12 @@ const SECTION_ICONS: Record<string, React.FC<{ className?: string }>> = {
   aisettings: Bot,
 };
 
-const Sidebar: React.FC = () => {
+interface SidebarProps {
+  mobileOpen?: boolean;
+  onCloseMobile?: () => void;
+}
+
+const Sidebar: React.FC<SidebarProps> = ({ mobileOpen = false, onCloseMobile }) => {
   const dispatch = useAppDispatch();
   const activeSection = useAppSelector(state => state.resume.activeSection);
   const sectionOrder = useAppSelector(state => state.resume.data.sectionOrder);
@@ -57,6 +62,16 @@ const Sidebar: React.FC = () => {
     setDraggedItem(null);
   };
 
+  /** Keyboard/touch-friendly alternative to drag-and-drop reordering. */
+  const moveSection = (index: number, direction: -1 | 1) => {
+    const targetIndex = index + direction;
+    if (targetIndex < 0 || targetIndex >= sectionOrder.length) return;
+    const newOrder = [...sectionOrder];
+    const [item] = newOrder.splice(index, 1);
+    newOrder.splice(targetIndex, 0, item);
+    dispatch(updateSectionOrder(newOrder));
+  };
+
   const handleAddCustomSection = () => {
     if (customSectionName.trim()) {
       dispatch(addCustomSection(customSectionName.trim()));
@@ -69,7 +84,10 @@ const Sidebar: React.FC = () => {
     const isActive = activeSection === id;
     return (
       <button
-        onClick={() => dispatch(setActiveSection(id))}
+        onClick={() => {
+          dispatch(setActiveSection(id));
+          onCloseMobile?.();
+        }}
         className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-left transition-all text-sm font-medium border ${isActive ? activeCls : `border-transparent ${hoverCls}`}`}
       >
         <Icon className="h-4 w-4 flex-shrink-0" />
@@ -81,8 +99,16 @@ const Sidebar: React.FC = () => {
   };
 
   return (
-    <div className={`w-60 border-r ${bg} flex flex-col h-full overflow-hidden flex-shrink-0`}>
-      <div className="flex-1 overflow-y-auto p-3 space-y-1">
+    <>
+      {mobileOpen && (
+        <div className="fixed inset-0 z-30 bg-black/50 md:hidden" onClick={onCloseMobile} />
+      )}
+      <div
+        className={`w-60 border-r ${bg} flex flex-col h-full overflow-hidden flex-shrink-0 fixed inset-y-0 left-0 z-40 transition-transform duration-200 md:static md:z-auto md:translate-x-0 ${
+          mobileOpen ? 'translate-x-0' : '-translate-x-full'
+        }`}
+      >
+        <div className="flex-1 overflow-y-auto p-3 space-y-1">
         {/* Top fixed: Personal */}
         <NavBtn id="personal" label="Personal Info" icon={User} />
 
@@ -95,7 +121,7 @@ const Sidebar: React.FC = () => {
         </div>
 
         {/* Draggable sections */}
-        {sectionOrder.map(section => {
+        {sectionOrder.map((section, index) => {
           const Icon = SECTION_ICONS[section.type] || Code;
           const isActive = activeSection === section.id;
           return (
@@ -105,7 +131,7 @@ const Sidebar: React.FC = () => {
               onDragStart={e => handleDragStart(e, section.id)}
               onDragOver={handleDragOver}
               onDrop={e => handleDrop(e, section.id)}
-              className={`group flex items-center gap-1.5 px-2 py-2 rounded-lg cursor-move transition-all border text-sm font-medium ${
+              className={`group flex items-center gap-1 px-2 py-2 rounded-lg cursor-move transition-all border text-sm font-medium ${
                 isActive ? activeCls : `border-transparent ${hoverCls}`
               } ${draggedItem === section.id ? 'opacity-40 scale-95' : ''}`}
             >
@@ -117,8 +143,27 @@ const Sidebar: React.FC = () => {
                 <Icon className="h-3.5 w-3.5 flex-shrink-0" />
                 <span className="truncate">{section.name}</span>
               </button>
+              <div className="flex flex-col flex-shrink-0 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
+                <button
+                  onClick={e => { e.stopPropagation(); moveSection(index, -1); }}
+                  disabled={index === 0}
+                  aria-label={`Move ${section.name} up`}
+                  className={`p-0.5 rounded disabled:opacity-30 disabled:cursor-not-allowed ${dm ? 'hover:bg-gray-700' : 'hover:bg-gray-200'}`}
+                >
+                  <ChevronUp className={`h-3 w-3 ${dm ? 'text-gray-400' : 'text-gray-500'}`} />
+                </button>
+                <button
+                  onClick={e => { e.stopPropagation(); moveSection(index, 1); }}
+                  disabled={index === sectionOrder.length - 1}
+                  aria-label={`Move ${section.name} down`}
+                  className={`p-0.5 rounded disabled:opacity-30 disabled:cursor-not-allowed ${dm ? 'hover:bg-gray-700' : 'hover:bg-gray-200'}`}
+                >
+                  <ChevronDown className={`h-3 w-3 ${dm ? 'text-gray-400' : 'text-gray-500'}`} />
+                </button>
+              </div>
               <button
                 onClick={e => { e.stopPropagation(); dispatch(toggleSectionVisibility(section.id)); }}
+                aria-label={`${section.visible ? 'Hide' : 'Show'} ${section.name}`}
                 className={`p-1 rounded transition-colors flex-shrink-0 ${dm ? 'hover:bg-gray-700' : 'hover:bg-gray-200'}`}
               >
                 {section.visible
@@ -172,7 +217,8 @@ const Sidebar: React.FC = () => {
         <NavBtn id="styling" label="Styling" icon={Palette} />
         <NavBtn id="aisettings" label="AI Settings" icon={Bot} />
       </div>
-    </div>
+      </div>
+    </>
   );
 };
 

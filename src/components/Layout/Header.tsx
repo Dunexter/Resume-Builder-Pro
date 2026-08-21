@@ -1,26 +1,27 @@
 import React, { useState } from 'react';
 import {
   FileText, Download, Save, Clock, Moon, Sun, Layers,
-  ChevronDown, FileCode, AlignLeft, Sparkles, History
+  ChevronDown, FileCode, AlignLeft, Sparkles, History, Undo2, Redo2, Menu
 } from 'lucide-react';
 import { useAppSelector, useAppDispatch } from '../../hooks';
-import { toggleDarkMode, setLastSaved, setShowTemplateGallery, setShowCoverLetterBuilder } from '../../store/resumeSlice';
+import { toggleDarkMode, setLastSaved, setShowTemplateGallery, setShowCoverLetterBuilder, undo, redo } from '../../store/resumeSlice';
 import { saveResume, loadResume } from '../../db/resumeDB';
-import { exportDOCX, exportTXT } from '../../utils/exportUtils';
 import { validateResumeForExport, formatValidationMessage } from '../../utils/validationUtils';
-import { exportVisualPDF, exportAtsPDF } from '../../utils/pdfExport';
 
 interface HeaderProps {
   onOpenResumeManager: () => void;
   onOpenVersions: () => void;
+  onToggleMobileSidebar?: () => void;
 }
 
-const Header: React.FC<HeaderProps> = ({ onOpenResumeManager, onOpenVersions }) => {
+const Header: React.FC<HeaderProps> = ({ onOpenResumeManager, onOpenVersions, onToggleMobileSidebar }) => {
   const dispatch = useAppDispatch();
   const lastSaved = useAppSelector(state => state.resume.lastSaved);
   const darkMode = useAppSelector(state => state.resume.settings.darkMode);
   const resumeData = useAppSelector(state => state.resume.data);
   const activeResumeId = useAppSelector(state => state.resume.activeResumeId);
+  const canUndo = useAppSelector(state => state.resume.history.past.length > 0);
+  const canRedo = useAppSelector(state => state.resume.history.future.length > 0);
   const [exportOpen, setExportOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
@@ -75,6 +76,7 @@ const Header: React.FC<HeaderProps> = ({ onOpenResumeManager, onOpenVersions }) 
     if (!ensureExportAllowed()) return;
     setIsExporting(true);
     try {
+      const { exportVisualPDF } = await import('../../utils/pdfExport');
       await exportVisualPDF(resumeData);
     } catch (err) {
       console.error('Visual PDF export failed:', err);
@@ -84,10 +86,11 @@ const Header: React.FC<HeaderProps> = ({ onOpenResumeManager, onOpenVersions }) 
     }
   };
 
-  const handleExportAtsPDF = () => {
+  const handleExportAtsPDF = async () => {
     setExportOpen(false);
     setIsExporting(true);
     try {
+      const { exportAtsPDF } = await import('../../utils/pdfExport');
       exportAtsPDF(resumeData);
     } catch (err) {
       console.error('ATS PDF export failed:', err);
@@ -102,16 +105,32 @@ const Header: React.FC<HeaderProps> = ({ onOpenResumeManager, onOpenVersions }) 
     if (!ensureExportAllowed()) return;
     setIsExporting(true);
     try {
+      const { exportDOCX } = await import('../../utils/exportUtils');
       await exportDOCX(resumeData);
     } finally {
       setIsExporting(false);
     }
   };
 
-  const handleExportTXT = () => {
+  const handleExportTXT = async () => {
     setExportOpen(false);
     if (!ensureExportAllowed()) return;
+    const { exportTXT } = await import('../../utils/exportUtils');
     exportTXT(resumeData);
+  };
+
+  const handleExportMarkdown = async () => {
+    setExportOpen(false);
+    if (!ensureExportAllowed()) return;
+    const { exportMarkdown } = await import('../../utils/markdownExport');
+    exportMarkdown(resumeData);
+  };
+
+  const handleExportLatex = async () => {
+    setExportOpen(false);
+    if (!ensureExportAllowed()) return;
+    const { exportLatex } = await import('../../utils/latexExport');
+    exportLatex(resumeData);
   };
 
   const base = darkMode ? 'bg-gray-900 border-gray-700 text-white' : 'bg-white border-gray-200 text-gray-900';
@@ -122,6 +141,14 @@ const Header: React.FC<HeaderProps> = ({ onOpenResumeManager, onOpenVersions }) 
     <header className={`app-chrome border-b px-4 py-3 flex-shrink-0 z-20 ${base}`}>
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
+          <button
+            onClick={onToggleMobileSidebar}
+            className={`p-2 rounded-lg transition-colors md:hidden ${btnBase}`}
+            title="Toggle menu"
+            aria-label="Toggle menu"
+          >
+            <Menu className="h-5 w-5" />
+          </button>
           <div className="flex items-center gap-2">
             <div className="bg-indigo-600 p-1.5 rounded-lg">
               <FileText className="h-5 w-5 text-white" />
@@ -178,6 +205,27 @@ const Header: React.FC<HeaderProps> = ({ onOpenResumeManager, onOpenVersions }) 
             {darkMode ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
           </button>
 
+          <div className={`flex items-center rounded-lg overflow-hidden border ${darkMode ? 'border-gray-700' : 'border-gray-200'}`}>
+            <button
+              onClick={() => dispatch(undo())}
+              disabled={!canUndo}
+              title="Undo"
+              aria-label="Undo"
+              className={`p-2 transition-colors disabled:opacity-30 disabled:cursor-not-allowed ${btnBase}`}
+            >
+              <Undo2 className="h-4 w-4" />
+            </button>
+            <button
+              onClick={() => dispatch(redo())}
+              disabled={!canRedo}
+              title="Redo"
+              aria-label="Redo"
+              className={`p-2 transition-colors disabled:opacity-30 disabled:cursor-not-allowed ${btnBase}`}
+            >
+              <Redo2 className="h-4 w-4" />
+            </button>
+          </div>
+
           <button
             onClick={handleManualSave}
             disabled={isSaving}
@@ -228,6 +276,20 @@ const Header: React.FC<HeaderProps> = ({ onOpenResumeManager, onOpenVersions }) 
                     <div className="text-left">
                       <div className="font-medium">Plain Text</div>
                       <div className="text-xs text-gray-400">ATS safe, no formatting</div>
+                    </div>
+                  </button>
+                  <button onClick={handleExportMarkdown} className={menuItem}>
+                    <FileCode className="h-4 w-4 text-purple-500 flex-shrink-0" />
+                    <div className="text-left">
+                      <div className="font-medium">Markdown (.md)</div>
+                      <div className="text-xs text-gray-400">GitHub / Notion friendly</div>
+                    </div>
+                  </button>
+                  <button onClick={handleExportLatex} className={menuItem}>
+                    <FileCode className="h-4 w-4 text-teal-500 flex-shrink-0" />
+                    <div className="text-left">
+                      <div className="font-medium">LaTeX (.tex)</div>
+                      <div className="text-xs text-gray-400">Compile in Overleaf/TeX Live</div>
                     </div>
                   </button>
                 </div>
