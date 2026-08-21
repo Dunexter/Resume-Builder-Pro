@@ -16,6 +16,7 @@ const MUTATING_ACTIONS = new Set([
   'resume/updateSectionOrder', 'resume/toggleSectionVisibility',
   'resume/updateStyling',
   'resume/insertMissingKeyword',
+  'resume/loadResumeData',
 ]);
 
 /**

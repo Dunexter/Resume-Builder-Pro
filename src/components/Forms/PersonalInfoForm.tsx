@@ -1,8 +1,10 @@
 import React, { useState } from 'react';
 import { useAppSelector, useAppDispatch } from '../../hooks';
-import { updatePersonalInfo } from '../../store/resumeSlice';
+import { updatePersonalInfo, loadResumeData } from '../../store/resumeSlice';
 import { generateSummaryWithAI } from '../../utils/atsUtils';
-import { Sparkles, Loader } from 'lucide-react';
+import { extractTextFromFile } from '../../utils/resumeFileParser';
+import { importResumeFromText } from '../../utils/resumeImport';
+import { Sparkles, Loader, Upload, RefreshCw } from 'lucide-react';
 
 const PersonalInfoForm: React.FC = () => {
   const dispatch = useAppDispatch();
@@ -11,9 +13,44 @@ const PersonalInfoForm: React.FC = () => {
   const resumeData = useAppSelector(state => state.resume.data);
   const darkMode = useAppSelector(state => state.resume.settings.darkMode);
   const [generatingSummary, setGeneratingSummary] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [importError, setImportError] = useState<string | null>(null);
+  const [importNote, setImportNote] = useState<string | null>(null);
 
   const handleChange = (field: keyof typeof info, value: string) => {
     dispatch(updatePersonalInfo({ [field]: value }));
+  };
+
+  const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+
+    const confirmed = window.confirm(
+      `Import "${file.name}" into this resume?\n\n` +
+      'This will replace all current fields (personal info, experience, education, skills, etc.) ' +
+      'with content extracted from the file. You can undo with Ctrl+Z if the result needs fixing.'
+    );
+    if (!confirmed) return;
+
+    setImportError(null);
+    setImportNote(null);
+    setImporting(true);
+    try {
+      const text = await extractTextFromFile(file);
+      const result = await importResumeFromText(text, aiSettings);
+      dispatch(loadResumeData(result.data));
+      setImportNote(
+        result.warning ||
+        (result.usedAI
+          ? 'Imported with AI assistance — please review each section for accuracy.'
+          : 'Imported using basic text parsing — please review each section, especially dates and job titles.')
+      );
+    } catch (err) {
+      setImportError(err instanceof Error ? err.message : 'Could not read this file.');
+    } finally {
+      setImporting(false);
+    }
   };
 
   const handleGenerateSummary = async () => {
@@ -34,6 +71,37 @@ const PersonalInfoForm: React.FC = () => {
   return (
     <div className="space-y-5">
       <h2 className={`text-lg font-bold ${darkMode ? 'text-white' : 'text-gray-900'}`}>Personal Information</h2>
+
+      <div className={`rounded-xl border p-4 ${darkMode ? 'border-gray-700 bg-gray-800' : 'border-gray-200 bg-white'}`}>
+        <h3 className={`text-sm font-semibold ${darkMode ? 'text-white' : 'text-gray-900'}`}>Already have a resume?</h3>
+        <p className={`text-xs mt-0.5 mb-3 ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+          Upload a .pdf, .docx, or .txt file to auto-fill every section below, then edit as needed.
+          {aiSettings.provider !== 'none' && aiSettings.apiKey ? ' Your configured AI provider will parse it for accuracy.' : ' Add an AI key in Settings for more accurate parsing.'}
+        </p>
+        <label className={`flex flex-col items-center justify-center gap-2 border-2 border-dashed rounded-xl px-4 py-5 cursor-pointer transition-colors ${
+          darkMode ? 'border-gray-700 hover:border-indigo-500 hover:bg-gray-700/40' : 'border-gray-300 hover:border-indigo-400 hover:bg-indigo-50/50'
+        }`}>
+          <input type="file" accept=".pdf,.docx,.txt" className="hidden" onChange={e => void handleImportFile(e)} disabled={importing} />
+          {importing ? (
+            <>
+              <RefreshCw className="h-6 w-6 text-indigo-500 animate-spin" />
+              <span className={`text-sm ${darkMode ? 'text-gray-300' : 'text-gray-600'}`}>Parsing your resume…</span>
+            </>
+          ) : (
+            <>
+              <Upload className={`h-6 w-6 ${darkMode ? 'text-gray-500' : 'text-gray-400'}`} />
+              <span className={`text-sm font-medium ${darkMode ? 'text-gray-300' : 'text-gray-600'}`}>Click to upload your resume</span>
+              <span className={`text-xs ${darkMode ? 'text-gray-500' : 'text-gray-400'}`}>PDF, DOCX, or TXT · up to 10MB · processed locally</span>
+            </>
+          )}
+        </label>
+        {importError && (
+          <div className={`mt-3 text-xs p-2.5 rounded-lg ${darkMode ? 'bg-red-900/30 text-red-300' : 'bg-red-50 text-red-700'}`}>{importError}</div>
+        )}
+        {importNote && !importError && (
+          <div className={`mt-3 text-xs p-2.5 rounded-lg ${darkMode ? 'bg-amber-900/20 text-amber-300' : 'bg-amber-50 text-amber-700'}`}>{importNote}</div>
+        )}
+      </div>
 
       <div className="grid grid-cols-1 gap-4">
         <div>
