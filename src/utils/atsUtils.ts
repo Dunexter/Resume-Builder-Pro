@@ -339,89 +339,286 @@ export function getCategoryScores(rules: ATSRule[]): Record<string, number> {
 // Content Quality Checker
 // ─────────────────────────────────────────────────────────────────────────────
 
+function buildContentIssuesForLine(line: string, section: string): ContentIssue[] {
+  const issues: ContentIssue[] = [];
+  const lower = line.toLowerCase();
+
+  // Weak verbs
+  const foundWeak = WEAK_VERBS.find(v => lower.startsWith(v) || lower.includes(` ${v} `));
+  if (foundWeak) {
+    issues.push({
+      type: 'weak_verb',
+      section,
+      text: line,
+      suggestion: `Replace "${foundWeak}" with a strong action verb: Led, Architected, Drove, Reduced, Optimized, Delivered, Increased, Built.`,
+    });
+  }
+
+  // Passive voice patterns
+  if (/\bwas (done|completed|built|created|developed|implemented|managed|handled)\b/i.test(line)) {
+    issues.push({
+      type: 'passive_voice',
+      section,
+      text: line,
+      suggestion: 'Rewrite in active voice: instead of "was built by me", write "Built...".',
+    });
+  }
+
+  // No metric
+  if (!/\d+/.test(line) && line.length > 30) {
+    issues.push({
+      type: 'no_metric',
+      section,
+      text: line,
+      suggestion: 'Add a number or metric: "Reduced latency by 40%", "Served 1M+ users", "Cut costs by $20K".',
+    });
+  }
+
+  // Too short
+  if (line.trim().length < 20 && line.trim().length > 0) {
+    issues.push({
+      type: 'too_short',
+      section,
+      text: line,
+      suggestion: 'Expand this bullet point to include context, action, and measurable result.',
+    });
+  }
+
+  // Too long
+  if (line.length > 220) {
+    issues.push({
+      type: 'too_long',
+      section,
+      text: line.slice(0, 80) + '...',
+      suggestion: 'Shorten to 1–2 lines. Focus on the key action and outcome.',
+    });
+  }
+
+  // Filler words
+  const foundFiller = FILLER_WORDS.find(f => lower.includes(f.toLowerCase()));
+  if (foundFiller) {
+    issues.push({
+      type: 'filler_word',
+      section,
+      text: line,
+      suggestion: `Remove filler phrase "${foundFiller}". Replace with specific, concrete language.`,
+    });
+  }
+
+  return issues;
+}
+
+function dedupeIssuesByText(issues: ContentIssue[]): ContentIssue[] {
+  const seen = new Set<string>();
+  return issues.filter(i => {
+    if (seen.has(i.text)) return false;
+    seen.add(i.text);
+    return true;
+  });
+}
+
 export function checkContentQuality(data: ResumeData): ContentQualityResult {
   const issues: ContentIssue[] = [];
 
   // Check achievement bullet points
   for (const exp of data.sections.experience) {
     for (const ach of exp.achievements.filter(a => a.trim())) {
-      const lower = ach.toLowerCase();
-
-      // Weak verbs
-      const foundWeak = WEAK_VERBS.find(v => lower.startsWith(v) || lower.includes(` ${v} `));
-      if (foundWeak) {
-        issues.push({
-          type: 'weak_verb',
-          section: `${exp.company} – ${exp.position}`,
-          text: ach,
-          suggestion: `Replace "${foundWeak}" with a strong action verb: Led, Architected, Drove, Reduced, Optimized, Delivered, Increased, Built.`,
-        });
-      }
-
-      // Passive voice patterns
-      if (/\bwas (done|completed|built|created|developed|implemented|managed|handled)\b/i.test(ach)) {
-        issues.push({
-          type: 'passive_voice',
-          section: `${exp.company} – ${exp.position}`,
-          text: ach,
-          suggestion: 'Rewrite in active voice: instead of "was built by me", write "Built...".',
-        });
-      }
-
-      // No metric
-      if (!/\d+/.test(ach) && ach.length > 30) {
-        issues.push({
-          type: 'no_metric',
-          section: `${exp.company} – ${exp.position}`,
-          text: ach,
-          suggestion: 'Add a number or metric: "Reduced latency by 40%", "Served 1M+ users", "Cut costs by $20K".',
-        });
-      }
-
-      // Too short
-      if (ach.trim().length < 20 && ach.trim().length > 0) {
-        issues.push({
-          type: 'too_short',
-          section: `${exp.company} – ${exp.position}`,
-          text: ach,
-          suggestion: 'Expand this bullet point to include context, action, and measurable result.',
-        });
-      }
-
-      // Too long
-      if (ach.length > 220) {
-        issues.push({
-          type: 'too_long',
-          section: `${exp.company} – ${exp.position}`,
-          text: ach.slice(0, 80) + '...',
-          suggestion: 'Shorten to 1–2 lines. Focus on the key action and outcome.',
-        });
-      }
-
-      // Filler words
-      const foundFiller = FILLER_WORDS.find(f => lower.includes(f.toLowerCase()));
-      if (foundFiller) {
-        issues.push({
-          type: 'filler_word',
-          section: `${exp.company} – ${exp.position}`,
-          text: ach,
-          suggestion: `Remove filler phrase "${foundFiller}". Replace with specific, concrete language.`,
-        });
-      }
+      issues.push(...buildContentIssuesForLine(ach, `${exp.company} – ${exp.position}`));
     }
   }
 
-  // Deduplicate by text
-  const seen = new Set<string>();
-  const unique = issues.filter(i => {
-    if (seen.has(i.text)) return false;
-    seen.add(i.text);
-    return true;
-  });
+  const unique = dedupeIssuesByText(issues);
 
   const totalBullets = data.sections.experience.flatMap(e => e.achievements.filter(a => a.trim())).length;
   const issueCount = unique.length;
   const score = totalBullets === 0 ? 0 : Math.max(0, Math.round(100 - (issueCount / Math.max(totalBullets, 1)) * 80));
+
+  return { issues: unique, score };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Raw-text ATS analysis (for uploaded resume files: PDF / DOCX / TXT)
+// ─────────────────────────────────────────────────────────────────────────────
+
+const EXPERIENCE_HEADINGS = new Set(['work experience', 'experience', 'employment', 'professional experience']);
+const EDUCATION_HEADINGS = new Set(['education', 'academic background']);
+const SKILLS_HEADINGS = new Set(['skills', 'technical skills', 'core competencies']);
+const SUMMARY_HEADINGS = new Set(['summary', 'professional summary', 'objective', 'career objective']);
+const ALL_RAW_HEADINGS = new Set([
+  ...EXPERIENCE_HEADINGS, ...EDUCATION_HEADINGS, ...SKILLS_HEADINGS, ...SUMMARY_HEADINGS,
+]);
+
+interface RawSections {
+  summary: string[];
+  experience: string[];
+  education: string[];
+  skills: string[];
+}
+
+function normalizeHeadingLine(line: string): string {
+  return line.trim().toLowerCase().replace(/[:\-–—]+$/, '').trim();
+}
+
+function isBulletLine(line: string): boolean {
+  return /^[-•*▪●○◦]\s+/.test(line) || /^\d+[.)]\s+/.test(line);
+}
+
+function stripBulletMarker(line: string): string {
+  return line.replace(/^[-•*▪●○◦]\s+/, '').replace(/^\d+[.)]\s+/, '');
+}
+
+function splitIntoRawSections(text: string): RawSections {
+  const lines = text.split(/\r?\n/);
+  const sections: RawSections = { summary: [], experience: [], education: [], skills: [] };
+  let current: keyof RawSections | null = null;
+
+  for (const rawLine of lines) {
+    const normalized = normalizeHeadingLine(rawLine);
+    if (ALL_RAW_HEADINGS.has(normalized)) {
+      if (EXPERIENCE_HEADINGS.has(normalized)) current = 'experience';
+      else if (EDUCATION_HEADINGS.has(normalized)) current = 'education';
+      else if (SKILLS_HEADINGS.has(normalized)) current = 'skills';
+      else if (SUMMARY_HEADINGS.has(normalized)) current = 'summary';
+      continue;
+    }
+    if (current && rawLine.trim()) {
+      sections[current].push(rawLine.trim());
+    }
+  }
+  return sections;
+}
+
+/** ATS parse-safety rules computed from raw extracted text (uploaded PDF/DOCX/TXT), not the structured builder data. */
+export function lintRawResumeText(text: string): ATSLintResult {
+  const rules: ATSRule[] = [];
+  const trimmed = text.trim();
+  const sections = splitIntoRawSections(text);
+
+  rules.push({
+    id: 'raw-extractable',
+    category: 'File',
+    label: 'Readable text extracted',
+    status: trimmed.length >= 100 ? 'pass' : trimmed.length > 0 ? 'warn' : 'fail',
+    detail: trimmed.length >= 100
+      ? `Extracted ${trimmed.length.toLocaleString()} characters of text.`
+      : trimmed.length > 0
+        ? `Only ${trimmed.length} characters extracted — this file may be image-based or poorly formatted.`
+        : 'No text could be extracted. This is likely a scanned/image-based file that ATS systems cannot read at all.',
+    fix: 'Export from a text-based editor (Word, Google Docs) rather than scanning a printed resume.',
+  });
+
+  const hasEmail = /[\w.+-]+@[\w-]+\.[a-zA-Z]{2,}/.test(text);
+  const hasPhone = /(\+?\d[\d\s().-]{7,}\d)/.test(text);
+  rules.push({
+    id: 'raw-email',
+    category: 'Contact Info',
+    label: 'Email address',
+    status: hasEmail ? 'pass' : 'fail',
+    detail: hasEmail ? 'Email address detected.' : 'No email address detected.',
+    fix: 'Add a professional email address near the top of your resume.',
+  });
+  rules.push({
+    id: 'raw-phone',
+    category: 'Contact Info',
+    label: 'Phone number',
+    status: hasPhone ? 'pass' : 'warn',
+    detail: hasPhone ? 'Phone number detected.' : 'No phone number detected.',
+    fix: 'Add a phone number for recruiters to reach you.',
+  });
+
+  rules.push({
+    id: 'raw-experience-section',
+    category: 'Structure',
+    label: 'Work experience section',
+    status: sections.experience.length > 0 ? 'pass' : 'fail',
+    detail: sections.experience.length > 0
+      ? 'A recognizable "Experience" heading and content was found.'
+      : 'No standard "Experience" section heading was detected.',
+    fix: 'Use a standard heading like "Work Experience" or "Experience".',
+  });
+  rules.push({
+    id: 'raw-education-section',
+    category: 'Structure',
+    label: 'Education section',
+    status: sections.education.length > 0 ? 'pass' : 'warn',
+    detail: sections.education.length > 0
+      ? 'A recognizable "Education" heading and content was found.'
+      : 'No standard "Education" section heading was detected.',
+    fix: 'Use a standard heading like "Education".',
+  });
+  rules.push({
+    id: 'raw-skills-section',
+    category: 'Structure',
+    label: 'Skills section',
+    status: sections.skills.length > 0 ? 'pass' : 'warn',
+    detail: sections.skills.length > 0
+      ? 'A recognizable "Skills" heading and content was found.'
+      : 'No standard "Skills" section heading was detected.',
+    fix: 'Use a standard heading like "Skills" or "Technical Skills".',
+  });
+
+  const bulletLines = sections.experience.filter(isBulletLine);
+  const quantified = bulletLines.filter(l => /\d/.test(l));
+  const quantRatio = bulletLines.length === 0 ? 0 : quantified.length / bulletLines.length;
+  rules.push({
+    id: 'raw-quantified',
+    category: 'Content',
+    label: 'Quantified achievements (numbers/metrics)',
+    status: bulletLines.length === 0 ? 'warn' : quantRatio >= 0.5 ? 'pass' : quantified.length > 0 ? 'warn' : 'fail',
+    detail: bulletLines.length === 0
+      ? 'No bullet points detected under Experience.'
+      : `${quantified.length}/${bulletLines.length} bullet points contain numbers/metrics.`,
+    fix: 'Add numbers to your achievements: "Increased X by 30%", "Reduced cost by $50K".',
+  });
+
+  const skillTokens = sections.skills.join(', ').split(',').map(s => s.trim()).filter(Boolean);
+  rules.push({
+    id: 'raw-skills-count',
+    category: 'Content',
+    label: 'Skills (8+ recommended)',
+    status: skillTokens.length >= 8 ? 'pass' : skillTokens.length > 0 ? 'warn' : 'fail',
+    detail: skillTokens.length > 0 ? `${skillTokens.length} skills detected.` : 'No skills detected.',
+    fix: 'List at least 8 relevant skills, comma-separated.',
+  });
+
+  const hasSummary = sections.summary.join(' ').length > 50;
+  rules.push({
+    id: 'raw-summary',
+    category: 'Content',
+    label: 'Professional summary',
+    status: hasSummary ? 'pass' : 'warn',
+    detail: hasSummary ? 'Professional summary detected.' : 'No professional summary detected (or too short).',
+    fix: 'Add a 2–4 sentence professional summary near the top.',
+  });
+
+  const wordCount = trimmed ? trimmed.split(/\s+/).filter(Boolean).length : 0;
+  rules.push({
+    id: 'raw-length',
+    category: 'Length',
+    label: 'Resume length (~350–800 words)',
+    status: wordCount >= 300 && wordCount <= 900 ? 'pass' : wordCount > 0 ? 'warn' : 'fail',
+    detail: `${wordCount.toLocaleString()} words detected.`,
+    fix: wordCount < 300 ? 'Add more detail to your experience and skills.' : 'Trim content to focus on your most relevant, recent experience.',
+  });
+
+  const passed = rules.filter(r => r.status === 'pass').length;
+  const score = Math.round((passed / rules.length) * 100);
+
+  return { passed: score >= 70, rules, score };
+}
+
+/** Content-quality issues (weak verbs, passive voice, missing metrics, etc.) computed from raw extracted text. */
+export function checkRawContentQuality(text: string): ContentQualityResult {
+  const sections = splitIntoRawSections(text);
+  const bulletLines = sections.experience.filter(isBulletLine).map(stripBulletMarker);
+
+  const issues: ContentIssue[] = [];
+  for (const line of bulletLines) {
+    issues.push(...buildContentIssuesForLine(line, 'Uploaded resume'));
+  }
+
+  const unique = dedupeIssuesByText(issues);
+  const score = bulletLines.length === 0 ? 0 : Math.max(0, Math.round(100 - (unique.length / Math.max(bulletLines.length, 1)) * 80));
 
   return { issues: unique, score };
 }
