@@ -13,8 +13,75 @@ export interface ChatMessage {
   content: string;
 }
 
-const DEFAULT_OPENAI_MODEL = 'gpt-4o-mini';
-const DEFAULT_GEMINI_MODEL = 'gemini-1.5-flash';
+export const DEFAULT_OPENAI_MODEL = 'gpt-4o-mini';
+export const DEFAULT_GEMINI_MODEL = 'gemini-1.5-flash';
+
+export interface ModelOption {
+  value: string;
+  label: string;
+}
+
+/** Model ids that exist in the API but aren't chat/generateContent models we want to offer. */
+const OPENAI_EXCLUDE_RE = /audio|realtime|embedding|whisper|tts|moderation|instruct|davinci|babbage|dall-e|image/i;
+const OPENAI_INCLUDE_RE = /^(gpt-|o1|o3|o4|chatgpt)/i;
+
+/**
+ * Fetches the live list of models available to this API key, straight from the provider.
+ * This avoids relying on a hardcoded model list that can go stale or include models the
+ * key/tier doesn't have access to (or omit newly released ones). Throws AIServiceError
+ * on failure — callers should fall back to a static preset list in that case.
+ */
+export async function listModels(aiSettings: AISettingsLike): Promise<ModelOption[]> {
+  if (!aiSettings.apiKey) {
+    throw new AIServiceError('No API key configured.', 'no_key');
+  }
+
+  if (aiSettings.provider === 'openai') {
+    let res: Response;
+    try {
+      res = await fetch('https://api.openai.com/v1/models', {
+        headers: { Authorization: `Bearer ${aiSettings.apiKey}` },
+      });
+    } catch {
+      throw new AIServiceError('Network error — could not reach OpenAI.', 'network');
+    }
+    if (!res.ok) throw await mapFetchError(res);
+    const json = await res.json();
+    const ids: string[] = (json.data || [])
+      .map((m: { id: string }) => m.id)
+      .filter((id: string) => OPENAI_INCLUDE_RE.test(id) && !OPENAI_EXCLUDE_RE.test(id));
+    return Array.from(new Set(ids))
+      .sort()
+      .map(id => ({ value: id, label: id }));
+  }
+
+  if (aiSettings.provider === 'gemini') {
+    let res: Response;
+    try {
+      res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(aiSettings.apiKey)}`
+      );
+    } catch {
+      throw new AIServiceError('Network error — could not reach Gemini.', 'network');
+    }
+    if (!res.ok) throw await mapFetchError(res);
+    const json = await res.json();
+    interface GeminiModel {
+      name: string;
+      supportedGenerationMethods?: string[];
+    }
+    const models: GeminiModel[] = json.models || [];
+    return models
+      .filter(m => m.supportedGenerationMethods?.includes('generateContent'))
+      .map(m => {
+        const id = m.name.replace(/^models\//, '');
+        return { value: id, label: id };
+      })
+      .sort((a, b) => a.value.localeCompare(b.value));
+  }
+
+  return [];
+}
 
 /**
  * Low-level call to the user's configured AI provider (OpenAI or Gemini) with full chat

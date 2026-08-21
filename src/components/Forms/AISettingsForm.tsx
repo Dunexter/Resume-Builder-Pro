@@ -1,7 +1,9 @@
-import React, { useState } from 'react';
-import { Key, Eye, EyeOff, ExternalLink, CheckCircle, Shield, AlertTriangle } from 'lucide-react';
+import React, { useEffect, useState, useCallback } from 'react';
+import { Key, Eye, EyeOff, ExternalLink, CheckCircle, Shield, AlertTriangle, RefreshCw } from 'lucide-react';
 import { useAppSelector, useAppDispatch } from '../../hooks';
 import { updateAISettings } from '../../store/resumeSlice';
+import { listModels, type ModelOption } from '../../utils/aiClient';
+import { humanizeAIError } from '../../utils/aiErrors';
 
 const CUSTOM_MODEL_VALUE = '__custom__';
 
@@ -40,9 +42,41 @@ const AISettingsForm: React.FC = () => {
   const [showKey, setShowKey] = useState(false);
   const [testStatus, setTestStatus] = useState<'idle' | 'testing' | 'ok' | 'fail'>('idle');
   const [testMessage, setTestMessage] = useState<string | null>(null);
-  const modelPresets = getModelPresets(aiSettings.provider);
+  const [fetchedModels, setFetchedModels] = useState<ModelOption[] | null>(null);
+  const [modelsLoading, setModelsLoading] = useState(false);
+  const [modelsError, setModelsError] = useState<string | null>(null);
+  const staticPresets = getModelPresets(aiSettings.provider);
+  const modelPresets: ModelOption[] =
+    fetchedModels && fetchedModels.length
+      ? [{ value: '', label: `Provider default (${aiSettings.provider === 'openai' ? 'gpt-4o-mini' : 'gemini-1.5-flash'})` }, ...fetchedModels]
+      : staticPresets;
   const isKnownModel = modelPresets.some(m => m.value === (aiSettings.model || ''));
   const [customMode, setCustomMode] = useState(() => !!aiSettings.model && !isKnownModel);
+
+  const refreshModels = useCallback(async () => {
+    if (!aiSettings.apiKey || aiSettings.provider === 'none') return;
+    setModelsLoading(true);
+    setModelsError(null);
+    try {
+      const models = await listModels(aiSettings);
+      setFetchedModels(models);
+    } catch (err) {
+      setModelsError(humanizeAIError(err));
+      setFetchedModels(null);
+    } finally {
+      setModelsLoading(false);
+    }
+  }, [aiSettings]);
+
+  useEffect(() => {
+    setFetchedModels(null);
+    setModelsError(null);
+    if (aiSettings.apiKey && aiSettings.provider !== 'none') {
+      void refreshModels();
+    }
+    // Only re-run when the provider or key actually changes, not on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [aiSettings.provider, aiSettings.apiKey]);
 
   const dm = darkMode;
   const inputCls = `w-full px-3 py-2 rounded-lg border text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-colors ${dm ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-500' : 'bg-white border-gray-300 text-gray-900'}`;
@@ -187,7 +221,19 @@ const AISettingsForm: React.FC = () => {
             </div>
 
             <div>
-              <label className={labelCls}>Model</label>
+              <div className="flex items-center justify-between mb-1">
+                <label className={`${labelCls} mb-0`}>Model</label>
+                <button
+                  type="button"
+                  onClick={() => void refreshModels()}
+                  disabled={!aiSettings.apiKey || modelsLoading}
+                  className={`flex items-center gap-1 text-xs font-medium disabled:opacity-40 disabled:cursor-not-allowed ${dm ? 'text-indigo-300 hover:text-indigo-200' : 'text-indigo-600 hover:text-indigo-700'}`}
+                  title="Fetch the current list of models available to your API key"
+                >
+                  <RefreshCw className={`h-3 w-3 ${modelsLoading ? 'animate-spin' : ''}`} />
+                  {modelsLoading ? 'Fetching…' : 'Refresh from provider'}
+                </button>
+              </div>
               <select
                 className={inputCls}
                 value={customMode ? CUSTOM_MODEL_VALUE : (aiSettings.model || '')}
@@ -205,6 +251,19 @@ const AISettingsForm: React.FC = () => {
                 ))}
                 <option value={CUSTOM_MODEL_VALUE}>Custom model…</option>
               </select>
+              {fetchedModels && fetchedModels.length > 0 ? (
+                <p className={`text-xs mt-1 ${dm ? 'text-green-400' : 'text-green-600'}`}>
+                  Showing {fetchedModels.length} live model{fetchedModels.length === 1 ? '' : 's'} available to your key.
+                </p>
+              ) : modelsError ? (
+                <p className={`text-xs mt-1 ${dm ? 'text-amber-300' : 'text-amber-700'}`}>
+                  Couldn't fetch live models ({modelsError}). Showing a static list — it may include deprecated models.
+                </p>
+              ) : !aiSettings.apiKey ? (
+                <p className={`text-xs mt-1 ${dm ? 'text-gray-500' : 'text-gray-400'}`}>
+                  Add an API key to fetch the live model list from the provider.
+                </p>
+              ) : null}
               {customMode && (
                 <input
                   className={`${inputCls} mt-2`}
@@ -215,17 +274,8 @@ const AISettingsForm: React.FC = () => {
                 />
               )}
               <p className={`text-xs mt-1.5 ${dm ? 'text-gray-500' : 'text-gray-400'}`}>
-                Getting a "model not found" (404) error? Your key may not have access to that model yet — try{' '}
-                {aiSettings.provider === 'openai' ? 'gpt-4o-mini' : 'gemini-1.5-flash'}, or check{' '}
-                <a
-                  href={aiSettings.provider === 'openai' ? 'https://platform.openai.com/docs/models' : 'https://ai.google.dev/gemini-api/docs/models'}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-indigo-500 hover:underline"
-                >
-                  available models
-                </a>{' '}
-                for your key.
+                Getting a "model not found" (404) error? Use "Refresh from provider" above to see the models your
+                key actually has access to — some models get deprecated or require a different tier/region.
               </p>
             </div>
 

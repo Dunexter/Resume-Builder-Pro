@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { callAIChat, callAIText, parseAIJson } from './aiClient';
+import { callAIChat, callAIText, parseAIJson, listModels } from './aiClient';
 
 describe('parseAIJson', () => {
   it('parses a plain JSON object', () => {
@@ -100,3 +100,53 @@ describe('callAIChat / callAIText', () => {
     expect(body.messages).toHaveLength(2);
   });
 });
+
+describe('listModels', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('fetches and filters Gemini models that support generateContent', async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        models: [
+          { name: 'models/gemini-1.5-flash', supportedGenerationMethods: ['generateContent'] },
+          { name: 'models/embedding-001', supportedGenerationMethods: ['embedContent'] },
+          { name: 'models/gemini-2.5-pro', supportedGenerationMethods: ['generateContent'] },
+        ],
+      }),
+    }) as unknown as typeof fetch;
+
+    const models = await listModels({ provider: 'gemini', apiKey: 'AIza-test' });
+    expect(models).toEqual([
+      { value: 'gemini-1.5-flash', label: 'gemini-1.5-flash' },
+      { value: 'gemini-2.5-pro', label: 'gemini-2.5-pro' },
+    ]);
+  });
+
+  it('fetches and filters OpenAI chat models', async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        data: [{ id: 'gpt-4o-mini' }, { id: 'whisper-1' }, { id: 'text-embedding-3-small' }, { id: 'gpt-4o' }],
+      }),
+    }) as unknown as typeof fetch;
+
+    const models = await listModels({ provider: 'openai', apiKey: 'sk-test' });
+    expect(models).toEqual([
+      { value: 'gpt-4o', label: 'gpt-4o' },
+      { value: 'gpt-4o-mini', label: 'gpt-4o-mini' },
+    ]);
+  });
+
+  it('throws AIServiceError when no API key is set', async () => {
+    await expect(listModels({ provider: 'gemini', apiKey: '' })).rejects.toMatchObject({ code: 'no_key' });
+  });
+
+  it('throws with unauthorized code when the provider rejects the key', async () => {
+    global.fetch = vi.fn().mockResolvedValue({ ok: false, status: 401 }) as unknown as typeof fetch;
+    await expect(listModels({ provider: 'openai', apiKey: 'bad-key' })).rejects.toMatchObject({ code: 'unauthorized' });
+  });
+});
+
