@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Provider } from 'react-redux';
+import { Analytics } from '@vercel/analytics/react';
 import { store } from './store/store';
 import Header from './components/Layout/Header';
 import Sidebar from './components/Layout/Sidebar';
@@ -158,6 +159,7 @@ function App() {
   return (
     <Provider store={store}>
       <AppContent />
+      <Analytics />
     </Provider>
   );
 }
