@@ -1,5 +1,15 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { X, Plus, Trash2, FileText, Copy, Clock, Download, Upload } from 'lucide-react';
+import {
+  X,
+  Plus,
+  Trash2,
+  FileText,
+  Copy,
+  Clock,
+  Download,
+  Upload,
+} from 'lucide-react';
+
 import { useAppDispatch, useAppSelector } from '../../hooks';
 import {
   setActiveResumeId,
@@ -9,15 +19,27 @@ import {
   setResumeList,
   updateSettings,
 } from '../../store/resumeSlice';
+
 import { initialResumeData } from '../../store/resumeSlice';
-import { listResumes, saveResume, deleteResume, loadSettings } from '../../db/resumeDB';
+
+import {
+  listResumes,
+  saveResume,
+  deleteResume,
+  loadSettings,
+} from '../../db/resumeDB';
+
 import { ResumeRecord } from '../../types/resume';
 import { v4 as uuidv4 } from 'uuid';
+
+import ImportResumeModal from './ImportResumeModal';
+
 import {
   exportWorkspaceBackup,
   importWorkspaceBackup,
   readBackupFile,
 } from '../../utils/backupUtils';
+
 
 interface Props { onClose: () => void; }
 
@@ -28,6 +50,7 @@ const ResumeManager: React.FC<Props> = ({ onClose }) => {
   const darkMode = useAppSelector(state => state.resume.settings.darkMode);
   const [resumes, setResumes] = useState<ResumeRecord[]>([]);
   const [loading, setLoading] = useState(true);
+  const [showImport, setShowImport] = useState(false);
   const [backupBusy, setBackupBusy] = useState(false);
   const [backupMsg, setBackupMsg] = useState<string | null>(null);
   const [includeApiKey, setIncludeApiKey] = useState(false);
@@ -49,6 +72,11 @@ const ResumeManager: React.FC<Props> = ({ onClose }) => {
   };
 
   useEffect(() => {
+    listResumes().then(list => {
+      setResumes(list.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()));
+      setLoading(false);
+    });
+  }, [showImport]);
     refreshList().finally(() => setLoading(false));
   }, []);
 
@@ -192,7 +220,6 @@ const ResumeManager: React.FC<Props> = ({ onClose }) => {
             </button>
             <button onClick={onClose} className={`p-2 rounded-xl ${dm ? 'hover:bg-gray-800 text-gray-400' : 'hover:bg-gray-100 text-gray-500'}`}><X className="h-4 w-4" /></button>
           </div>
-        </div>
 
         {/* Backup bar */}
         <div className={`px-5 py-3 border-b flex flex-wrap items-center gap-2 flex-shrink-0 ${dm ? 'border-gray-700 bg-gray-900/80' : 'border-gray-200 bg-white'}`}>
@@ -251,30 +278,44 @@ const ResumeManager: React.FC<Props> = ({ onClose }) => {
                   {r.name}
                   {r.id === activeResumeId && <span className="ml-2 text-xs text-indigo-500 font-medium">Active</span>}
                 </div>
-                {r.targetJob && <div className={`text-xs ${dm ? 'text-gray-400' : 'text-gray-500'}`}>Target: {r.targetJob}</div>}
-                <div className={`flex items-center gap-1 text-xs ${dm ? 'text-gray-500' : 'text-gray-400'} mt-0.5`}>
-                  <Clock className="h-3 w-3" />
-                  {new Date(r.updatedAt).toLocaleDateString()} {new Date(r.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                <div className="flex-1 min-w-0">
+                  <div className={`font-semibold text-sm ${dm ? 'text-white' : 'text-gray-900'}`}>
+                    {r.name}
+                    {r.id === activeResumeId && <span className="ml-2 text-xs text-indigo-500 font-medium">Active</span>}
+                  </div>
+                  {r.targetJob && <div className={`text-xs ${dm ? 'text-gray-400' : 'text-gray-500'}`}>Target: {r.targetJob}</div>}
+                  <div className={`flex items-center gap-1 text-xs ${dm ? 'text-gray-500' : 'text-gray-400'} mt-0.5`}>
+                    <Clock className="h-3 w-3" />
+                    {new Date(r.updatedAt).toLocaleDateString()} {new Date(r.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </div>
+                </div>
+                <div className="flex items-center gap-1 flex-shrink-0">
+                  {r.id !== activeResumeId && (
+                    <button onClick={() => handleSwitch(r)} className="px-3 py-1.5 text-xs font-medium text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors">
+                      Open
+                    </button>
+                  )}
+                  <button onClick={() => handleDuplicate(r)} className={`p-1.5 rounded-lg transition-colors ${dm ? 'hover:bg-gray-700 text-gray-400' : 'hover:bg-gray-100 text-gray-500'}`} title="Duplicate">
+                    <Copy className="h-3.5 w-3.5" />
+                  </button>
+                  <button onClick={() => handleDelete(r.id)} disabled={resumes.length === 1} className="p-1.5 rounded-lg text-red-400 hover:bg-red-50 transition-colors disabled:opacity-30" title="Delete">
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
                 </div>
               </div>
-              <div className="flex items-center gap-1 flex-shrink-0">
-                {r.id !== activeResumeId && (
-                  <button onClick={() => handleSwitch(r)} className="px-3 py-1.5 text-xs font-medium text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors">
-                    Open
-                  </button>
-                )}
-                <button onClick={() => handleDuplicate(r)} className={`p-1.5 rounded-lg transition-colors ${dm ? 'hover:bg-gray-700 text-gray-400' : 'hover:bg-gray-100 text-gray-500'}`} title="Duplicate">
-                  <Copy className="h-3.5 w-3.5" />
-                </button>
-                <button onClick={() => handleDelete(r.id)} disabled={resumes.length === 1} className="p-1.5 rounded-lg text-red-400 hover:bg-red-50 transition-colors disabled:opacity-30" title="Delete">
-                  <Trash2 className="h-3.5 w-3.5" />
-                </button>
-              </div>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
       </div>
-    </div>
+
+      {showImport && (
+        <ImportResumeModal
+          onClose={() => {
+            setShowImport(false);
+          }}
+        />
+      )}
+    </>
   );
 };
 
