@@ -3,6 +3,36 @@ import { Key, Eye, EyeOff, ExternalLink, CheckCircle, Shield, AlertTriangle } fr
 import { useAppSelector, useAppDispatch } from '../../hooks';
 import { updateAISettings } from '../../store/resumeSlice';
 
+const CUSTOM_MODEL_VALUE = '__custom__';
+
+const OPENAI_MODELS = [
+  { value: '', label: 'gpt-4o-mini (default)' },
+  { value: 'gpt-4o', label: 'gpt-4o' },
+  { value: 'gpt-4o-mini', label: 'gpt-4o-mini' },
+  { value: 'gpt-4.1', label: 'gpt-4.1' },
+  { value: 'gpt-4.1-mini', label: 'gpt-4.1-mini' },
+  { value: 'gpt-4-turbo', label: 'gpt-4-turbo' },
+  { value: 'gpt-3.5-turbo', label: 'gpt-3.5-turbo' },
+  { value: 'o3-mini', label: 'o3-mini (reasoning)' },
+];
+
+const GEMINI_MODELS = [
+  { value: '', label: 'gemini-1.5-flash (default)' },
+  { value: 'gemini-1.5-flash', label: 'gemini-1.5-flash' },
+  { value: 'gemini-1.5-pro', label: 'gemini-1.5-pro' },
+  { value: 'gemini-2.0-flash', label: 'gemini-2.0-flash' },
+  { value: 'gemini-2.0-flash-lite', label: 'gemini-2.0-flash-lite' },
+  { value: 'gemini-2.5-flash', label: 'gemini-2.5-flash' },
+  { value: 'gemini-2.5-pro', label: 'gemini-2.5-pro' },
+];
+
+function getModelPresets(provider: string) {
+  if (provider === 'openai') return OPENAI_MODELS;
+  if (provider === 'gemini') return GEMINI_MODELS;
+  return [];
+}
+
+
 const AISettingsForm: React.FC = () => {
   const dispatch = useAppDispatch();
   const aiSettings = useAppSelector(state => state.resume.settings.ai);
@@ -10,6 +40,9 @@ const AISettingsForm: React.FC = () => {
   const [showKey, setShowKey] = useState(false);
   const [testStatus, setTestStatus] = useState<'idle' | 'testing' | 'ok' | 'fail'>('idle');
   const [testMessage, setTestMessage] = useState<string | null>(null);
+  const modelPresets = getModelPresets(aiSettings.provider);
+  const isKnownModel = modelPresets.some(m => m.value === (aiSettings.model || ''));
+  const [customMode, setCustomMode] = useState(() => !!aiSettings.model && !isKnownModel);
 
   const dm = darkMode;
   const inputCls = `w-full px-3 py-2 rounded-lg border text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-colors ${dm ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-500' : 'bg-white border-gray-300 text-gray-900'}`;
@@ -100,6 +133,7 @@ const AISettingsForm: React.FC = () => {
                 dispatch(updateAISettings({ provider: p }));
                 setTestStatus('idle');
                 setTestMessage(null);
+                setCustomMode(false);
               }}
               className={`py-2 px-3 rounded-lg text-sm font-medium border transition-colors ${
                 aiSettings.provider === p
@@ -153,15 +187,33 @@ const AISettingsForm: React.FC = () => {
             </div>
 
             <div>
-              <label className={labelCls}>Model (optional)</label>
-              <input
+              <label className={labelCls}>Model</label>
+              <select
                 className={inputCls}
-                value={aiSettings.model || ''}
-                onChange={e => dispatch(updateAISettings({ model: e.target.value }))}
-                placeholder={
-                  aiSettings.provider === 'openai' ? 'gpt-4o-mini (default)' : 'gemini-1.5-flash (default)'
-                }
-              />
+                value={customMode ? CUSTOM_MODEL_VALUE : (aiSettings.model || '')}
+                onChange={e => {
+                  if (e.target.value === CUSTOM_MODEL_VALUE) {
+                    setCustomMode(true);
+                  } else {
+                    setCustomMode(false);
+                    dispatch(updateAISettings({ model: e.target.value }));
+                  }
+                }}
+              >
+                {modelPresets.map(m => (
+                  <option key={m.value || 'default'} value={m.value}>{m.label}</option>
+                ))}
+                <option value={CUSTOM_MODEL_VALUE}>Custom model…</option>
+              </select>
+              {customMode && (
+                <input
+                  className={`${inputCls} mt-2`}
+                  value={aiSettings.model || ''}
+                  onChange={e => dispatch(updateAISettings({ model: e.target.value }))}
+                  placeholder="Enter exact model name"
+                  autoFocus
+                />
+              )}
             </div>
 
             <button
