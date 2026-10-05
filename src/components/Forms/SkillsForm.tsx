@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react';
 import { Plus, Trash2, Lightbulb } from 'lucide-react';
 import { useAppSelector, useAppDispatch } from '../../hooks';
-import { addSkill, updateSkill, removeSkill } from '../../store/resumeSlice';
+import { addSkill, updateSkill, removeSkill, insertMissingKeyword } from '../../store/resumeSlice';
 import { SkillEntry } from '../../types/resume';
 import { analyzeSkillGaps } from '../../utils/skillGap';
 
@@ -10,7 +10,7 @@ const SUGGESTED_CATEGORIES = ['Languages', 'Frameworks & Libraries', 'Cloud & De
 const SkillsForm: React.FC = () => {
   const dispatch = useAppDispatch();
   const resumeData = useAppSelector(state => state.resume.data);
-  const skills = useAppSelector(state => state.resume.data.sections.skills);
+  const skills: SkillEntry[] = useAppSelector(state => state.resume.data.sections.skills);
   const darkMode = useAppSelector(state => state.resume.settings.darkMode);
 
   const skillGaps = useMemo(() => analyzeSkillGaps(resumeData), [resumeData]);
@@ -18,12 +18,8 @@ const SkillsForm: React.FC = () => {
   const update = (id: string, data: Partial<SkillEntry>) => dispatch(updateSkill({ id, data }));
 
   const addMissingSkill = (skill: string) => {
-    if (skills.length === 0) {
-      dispatch(addSkill());
-      return;
-    }
-    const last = skills[skills.length - 1];
-    update(last.id, { skills: last.skills ? `${last.skills}, ${skill}` : skill });
+    if (skills.some(s => s.skills.split(',').some(v => v.trim().toLowerCase() === skill.toLowerCase()))) return;
+    dispatch(insertMissingKeyword(skill));
   };
 
   const inputCls = `w-full px-3 py-2 rounded-lg border text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-colors ${
@@ -51,7 +47,7 @@ const SkillsForm: React.FC = () => {
             <Lightbulb className="h-4 w-4 text-amber-500" /> Skill gap intelligence
           </div>
           <p className={`text-xs ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-            Based on the skills you already listed, here are commonly-paired skills you might be missing.
+            Commonly paired skills, not job requirements. Add only skills you actually have; otherwise use these as learning ideas.
           </p>
           {skillGaps.map(gap => (
             <div key={gap.cluster}>
@@ -61,6 +57,7 @@ const SkillsForm: React.FC = () => {
                   <button
                     key={skill}
                     type="button"
+                    aria-label={`Add ${skill} only if accurate`}
                     onClick={() => addMissingSkill(skill)}
                     className={`text-[10px] px-1.5 py-0.5 rounded flex items-center gap-0.5 transition-colors ${
                       darkMode
@@ -82,8 +79,9 @@ const SkillsForm: React.FC = () => {
           <div className="flex gap-3">
             <div className="flex-1 space-y-3">
               <div>
-                <label className={labelCls}>Category</label>
+                <label htmlFor={`category-${skill.id}`} className={labelCls}>Category</label>
                 <input
+                  id={`category-${skill.id}`}
                   list={`cats-${skill.id}`}
                   className={inputCls}
                   value={skill.category}
@@ -95,8 +93,9 @@ const SkillsForm: React.FC = () => {
                 </datalist>
               </div>
               <div>
-                <label className={labelCls}>Skills (comma-separated)</label>
+                <label htmlFor={`skills-${skill.id}`} className={labelCls}>Skills (comma-separated)</label>
                 <textarea
+                  id={`skills-${skill.id}`}
                   className={`${inputCls} resize-none`}
                   rows={2}
                   value={skill.skills}
@@ -108,7 +107,7 @@ const SkillsForm: React.FC = () => {
                 </div>
               </div>
             </div>
-            <button onClick={() => dispatch(removeSkill(skill.id))} className="p-1.5 h-fit text-red-400 hover:bg-red-50 rounded-lg transition-colors flex-shrink-0 mt-6">
+            <button aria-label={`Remove ${skill.category || 'skill'} category`} onClick={() => dispatch(removeSkill(skill.id))} className="p-1.5 h-fit text-red-400 hover:bg-red-50 rounded-lg transition-colors flex-shrink-0 mt-6">
               <Trash2 className="h-4 w-4" />
             </button>
           </div>

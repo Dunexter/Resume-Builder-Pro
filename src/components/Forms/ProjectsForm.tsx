@@ -29,29 +29,29 @@ const ProjectsForm: React.FC = () => {
         <div key={proj.id} className={cardCls}>
           <div className="flex justify-between items-center">
             <span className={`text-sm font-medium ${darkMode ? 'text-gray-200' : 'text-gray-700'}`}>{proj.title || 'New Project'}</span>
-            <button onClick={() => dispatch(removeProject(proj.id))} className="p-1.5 text-red-400 hover:bg-red-50 rounded-lg"><Trash2 className="h-4 w-4" /></button>
+            <button aria-label={`Remove project: ${proj.title || 'untitled'}`} onClick={() => dispatch(removeProject(proj.id))} className="p-1.5 text-red-400 hover:bg-red-50 rounded-lg"><Trash2 className="h-4 w-4" /></button>
           </div>
           <div className="grid grid-cols-3 gap-3">
             <div className="col-span-2">
-              <label className={labelCls}>Project Title *</label>
-              <input className={inputCls} value={proj.title} onChange={e => update(proj.id, { title: e.target.value })} placeholder="Open Source Dashboard" />
+              <label htmlFor={`project-${proj.id}-title`} className={labelCls}>Project Title *</label>
+              <input id={`project-${proj.id}-title`} aria-required="true" className={inputCls} value={proj.title} onChange={e => update(proj.id, { title: e.target.value })} placeholder="Open Source Dashboard" />
             </div>
             <div>
-              <label className={labelCls}>Year</label>
-              <input className={inputCls} value={proj.year} onChange={e => update(proj.id, { year: e.target.value })} placeholder="2024" maxLength={4} />
+              <label htmlFor={`project-${proj.id}-year`} className={labelCls}>Year</label>
+              <input id={`project-${proj.id}-year`} className={inputCls} value={proj.year} onChange={e => update(proj.id, { year: e.target.value })} placeholder="2024" maxLength={4} />
             </div>
           </div>
           <div>
-            <label className={labelCls}>Description</label>
-            <textarea className={`${inputCls} resize-none`} rows={3} value={proj.description} onChange={e => update(proj.id, { description: e.target.value })} placeholder="Brief description: what it does, why you built it, key features." />
+            <label htmlFor={`project-${proj.id}-description`} className={labelCls}>Description</label>
+            <textarea id={`project-${proj.id}-description`} className={`${inputCls} resize-none`} rows={3} value={proj.description} onChange={e => update(proj.id, { description: e.target.value })} placeholder="Brief description: what it does, why you built it, key features." />
           </div>
           <div>
-            <label className={labelCls}>Technologies Used</label>
-            <input className={inputCls} value={proj.technologies || ''} onChange={e => update(proj.id, { technologies: e.target.value })} placeholder="React, TypeScript, Node.js, MongoDB" />
+            <label htmlFor={`project-${proj.id}-technologies`} className={labelCls}>Technologies Used</label>
+            <input id={`project-${proj.id}-technologies`} className={inputCls} value={proj.technologies || ''} onChange={e => update(proj.id, { technologies: e.target.value })} placeholder="React, TypeScript, Node.js, MongoDB" />
           </div>
           <div>
-            <label className={labelCls}>Project URL (optional)</label>
-            <input className={inputCls} value={proj.url || ''} onChange={e => update(proj.id, { url: e.target.value })} placeholder="github.com/username/project" />
+            <label htmlFor={`project-${proj.id}-url`} className={labelCls}>Project URL (optional)</label>
+            <input id={`project-${proj.id}-url`} className={inputCls} value={proj.url || ''} onChange={e => update(proj.id, { url: e.target.value })} placeholder="github.com/username/project" />
           </div>
         </div>
       ))}

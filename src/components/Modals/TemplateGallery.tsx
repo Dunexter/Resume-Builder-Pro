@@ -3,6 +3,7 @@ import { X, Check } from 'lucide-react';
 import { useAppDispatch, useAppSelector } from '../../hooks';
 import { setShowTemplateGallery, updateStyling } from '../../store/resumeSlice';
 import { ResumeData } from '../../types/resume';
+import Dialog from './Dialog';
 
 const TEMPLATES: { id: ResumeData['styling']['template']; label: string; description: string; tags: string[]; preview: React.ReactNode }[] = [
   {
@@ -141,16 +142,15 @@ const TemplateGallery: React.FC = () => {
   const dm = darkMode;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => dispatch(setShowTemplateGallery(false))} />
-      <div className={`relative z-10 w-full max-w-4xl max-h-[90vh] rounded-2xl shadow-2xl overflow-hidden ${dm ? 'bg-gray-900' : 'bg-white'}`}>
+    <Dialog labelledBy="template-gallery-title" onClose={() => dispatch(setShowTemplateGallery(false))}
+      className={`w-full max-w-4xl max-h-[90vh] rounded-2xl shadow-2xl overflow-hidden ${dm ? 'bg-gray-900' : 'bg-white'}`}>
         {/* Header */}
         <div className={`flex items-center justify-between p-6 border-b ${dm ? 'border-gray-700' : 'border-gray-200'}`}>
           <div>
-            <h2 className={`text-xl font-bold ${dm ? 'text-white' : 'text-gray-900'}`}>Choose a Template</h2>
+            <h2 id="template-gallery-title" className={`text-xl font-bold ${dm ? 'text-white' : 'text-gray-900'}`}>Choose a Template</h2>
             <p className={`text-sm mt-0.5 ${dm ? 'text-gray-400' : 'text-gray-500'}`}>All templates are ATS-safe and free to use</p>
           </div>
-          <button onClick={() => dispatch(setShowTemplateGallery(false))} className={`p-2 rounded-xl ${dm ? 'hover:bg-gray-800 text-gray-400' : 'hover:bg-gray-100 text-gray-500'}`}>
+          <button aria-label="Close template gallery" onClick={() => dispatch(setShowTemplateGallery(false))} className={`p-2 rounded-xl ${dm ? 'hover:bg-gray-800 text-gray-400' : 'hover:bg-gray-100 text-gray-500'}`}>
             <X className="h-5 w-5" />
           </button>
         </div>
@@ -161,6 +161,7 @@ const TemplateGallery: React.FC = () => {
             {TEMPLATES.map(t => (
               <button
                 key={t.id}
+                aria-pressed={currentTemplate === t.id}
                 onClick={() => { dispatch(updateStyling({ template: t.id })); dispatch(setShowTemplateGallery(false)); }}
                 className={`group relative rounded-xl border-2 overflow-hidden transition-all hover:scale-[1.02] hover:shadow-lg text-left ${
                   currentTemplate === t.id
@@ -174,7 +175,7 @@ const TemplateGallery: React.FC = () => {
                   </div>
                 )}
                 {/* Preview */}
-                <div className="h-40 overflow-hidden border-b border-gray-100">{t.preview}</div>
+                <div aria-hidden="true" className="h-40 overflow-hidden border-b border-gray-100">{t.preview}</div>
                 {/* Info */}
                 <div className={`p-3 ${dm ? 'bg-gray-800' : 'bg-white'}`}>
                   <div className={`font-bold text-sm mb-0.5 ${dm ? 'text-white' : 'text-gray-900'}`}>{t.label}</div>
@@ -189,8 +190,7 @@ const TemplateGallery: React.FC = () => {
             ))}
           </div>
         </div>
-      </div>
-    </div>
+    </Dialog>
   );
 };
 

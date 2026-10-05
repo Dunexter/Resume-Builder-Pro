@@ -20,13 +20,13 @@ const AwardsForm: React.FC = () => {
       </div>
       {awards.map(aw => (
         <div key={aw.id} className={cardCls}>
-          <div className="flex justify-end"><button onClick={() => dispatch(removeAward(aw.id))} className="p-1.5 text-red-400 hover:bg-red-50 rounded-lg"><Trash2 className="h-4 w-4" /></button></div>
-          <div><label className={labelCls}>Award / Recognition Title *</label><input className={inputCls} value={aw.title} onChange={e => update(aw.id, { title: e.target.value })} placeholder="Employee of the Year" /></div>
+          <div className="flex justify-end"><button aria-label={`Remove award: ${aw.title || 'untitled'}`} onClick={() => dispatch(removeAward(aw.id))} className="p-1.5 text-red-400 hover:bg-red-50 rounded-lg"><Trash2 className="h-4 w-4" /></button></div>
+          <div><label htmlFor={`award-${aw.id}-title`} className={labelCls}>Award / Recognition Title *</label><input id={`award-${aw.id}-title`} aria-required="true" className={inputCls} value={aw.title} onChange={e => update(aw.id, { title: e.target.value })} placeholder="Employee of the Year" /></div>
           <div className="grid grid-cols-2 gap-3">
-            <div><label className={labelCls}>Issuing Organization</label><input className={inputCls} value={aw.issuer || ''} onChange={e => update(aw.id, { issuer: e.target.value })} placeholder="Google" /></div>
-            <div><label className={labelCls}>Date</label><input className={inputCls} type="month" value={aw.date || ''} onChange={e => update(aw.id, { date: e.target.value })} /></div>
+            <div><label htmlFor={`award-${aw.id}-issuer`} className={labelCls}>Issuing Organization</label><input id={`award-${aw.id}-issuer`} className={inputCls} value={aw.issuer || ''} onChange={e => update(aw.id, { issuer: e.target.value })} placeholder="Google" /></div>
+            <div><label htmlFor={`award-${aw.id}-date`} className={labelCls}>Date</label><input id={`award-${aw.id}-date`} className={inputCls} type="month" value={aw.date || ''} onChange={e => update(aw.id, { date: e.target.value })} /></div>
           </div>
-          <div><label className={labelCls}>Description</label><textarea className={`${inputCls} resize-none`} rows={2} value={aw.description} onChange={e => update(aw.id, { description: e.target.value })} placeholder="Brief description of the award and why it was received." /></div>
+          <div><label htmlFor={`award-${aw.id}-description`} className={labelCls}>Description</label><textarea id={`award-${aw.id}-description`} className={`${inputCls} resize-none`} rows={2} value={aw.description} onChange={e => update(aw.id, { description: e.target.value })} placeholder="Brief description of the award and why it was received." /></div>
         </div>
       ))}
     </div>

@@ -1,6 +1,6 @@
 import { Middleware } from '@reduxjs/toolkit';
-import { pushHistorySnapshot } from './resumeSlice';
-import type { RootState } from './store';
+import { pushHistorySnapshot, markEditorDirty } from './resumeSlice';
+import type { ResumeState } from '../types/resume';
 
 /** Action types that mutate `state.resume.data` and should be snapshot-able for undo/redo. */
 const MUTATING_ACTIONS = new Set([
@@ -23,7 +23,7 @@ const MUTATING_ACTIONS = new Set([
  * Captures a snapshot of `state.resume.data` before any mutating action is applied,
  * enabling `undo`/`redo` reducers in resumeSlice to restore prior states.
  */
-export const undoRedoMiddleware: Middleware<object, RootState> = (storeApi) => (next) => (action) => {
+export const undoRedoMiddleware: Middleware<object, { resume: ResumeState }> = (storeApi) => (next) => (action) => {
   if (
     typeof action === 'object' &&
     action !== null &&
@@ -34,5 +34,12 @@ export const undoRedoMiddleware: Middleware<object, RootState> = (storeApi) => (
     const snapshot = storeApi.getState().resume.data;
     storeApi.dispatch(pushHistorySnapshot(snapshot));
   }
-  return next(action);
+  const result = next(action);
+  if (typeof action === 'object' && action !== null && 'type' in action &&
+      typeof action.type === 'string' && (MUTATING_ACTIONS.has(action.type) ||
+      ['resume/undo', 'resume/redo', 'resume/setJobDescription', 'resume/updateSettings',
+        'resume/updateAISettings', 'resume/toggleDarkMode'].includes(action.type))) {
+    storeApi.dispatch(markEditorDirty());
+  }
+  return result;
 };

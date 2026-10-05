@@ -1,4 +1,6 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
+import { useStore } from 'react-redux';
+import { ResumeState } from '../../types/resume';
 import { Key, Eye, EyeOff, ExternalLink, CheckCircle, Shield, AlertTriangle, RefreshCw } from 'lucide-react';
 import { useAppSelector, useAppDispatch } from '../../hooks';
 import { updateAISettings } from '../../store/resumeSlice';
@@ -37,6 +39,7 @@ function getModelPresets(provider: string) {
 
 const AISettingsForm: React.FC = () => {
   const dispatch = useAppDispatch();
+  const store = useStore<{ resume: ResumeState }>();
   const aiSettings = useAppSelector(state => state.resume.settings.ai);
   const darkMode = useAppSelector(state => state.resume.settings.darkMode);
   const [showKey, setShowKey] = useState(false);
@@ -45,37 +48,46 @@ const AISettingsForm: React.FC = () => {
   const [fetchedModels, setFetchedModels] = useState<ModelOption[] | null>(null);
   const [modelsLoading, setModelsLoading] = useState(false);
   const [modelsError, setModelsError] = useState<string | null>(null);
+  const modelRequest = useRef(0);
+  const keyRequest = useRef(0);
   const staticPresets = getModelPresets(aiSettings.provider);
   const modelPresets: ModelOption[] =
     fetchedModels && fetchedModels.length
-      ? [{ value: '', label: `Provider default (${aiSettings.provider === 'openai' ? 'gpt-4o-mini' : 'gemini-1.5-flash'})` }, ...fetchedModels]
+      ? [{ value: '', label: `App default (${aiSettings.provider === 'openai' ? 'gpt-4o-mini' : 'gemini-1.5-flash'})` }, ...fetchedModels]
       : staticPresets;
   const isKnownModel = modelPresets.some(m => m.value === (aiSettings.model || ''));
   const [customMode, setCustomMode] = useState(() => !!aiSettings.model && !isKnownModel);
 
-  const refreshModels = useCallback(async () => {
-    if (!aiSettings.apiKey || aiSettings.provider === 'none') return;
+  const refreshModels = async () => {
+    if (!aiSettings.apiKey.trim() || aiSettings.provider === 'none') return;
+    const request = ++modelRequest.current;
+    const isCurrent = () => request === modelRequest.current && store.getState().resume.settings.ai.provider === aiSettings.provider && store.getState().resume.settings.ai.apiKey === aiSettings.apiKey;
     setModelsLoading(true);
     setModelsError(null);
     try {
       const models = await listModels(aiSettings);
+      if (!isCurrent()) return;
       setFetchedModels(models);
+      if (!models.length) setModelsError('No compatible models returned.');
     } catch (err) {
+      if (!isCurrent()) return;
       setModelsError(humanizeAIError(err));
       setFetchedModels(null);
     } finally {
-      setModelsLoading(false);
+      if (isCurrent()) setModelsLoading(false);
     }
-  }, [aiSettings]);
+  };
 
   useEffect(() => {
+    const modelsToken = modelRequest;
+    const keyToken = keyRequest;
     setFetchedModels(null);
     setModelsError(null);
-    if (aiSettings.apiKey && aiSettings.provider !== 'none') {
-      void refreshModels();
-    }
-    // Only re-run when the provider or key actually changes, not on every render.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    setModelsLoading(false);
+    setTestStatus('idle');
+    setTestMessage(null);
+    setShowKey(false);
+    return () => { modelsToken.current++; keyToken.current++; };
   }, [aiSettings.provider, aiSettings.apiKey]);
 
   const dm = darkMode;
@@ -84,45 +96,21 @@ const AISettingsForm: React.FC = () => {
   const cardCls = `rounded-xl border p-4 ${dm ? 'border-gray-700 bg-gray-800' : 'border-gray-200 bg-white'}`;
 
   const handleTestKey = async () => {
-    if (!aiSettings.apiKey) return;
+    if (!aiSettings.apiKey.trim()) return;
+    const request = ++keyRequest.current;
+    const isCurrent = () => request === keyRequest.current && store.getState().resume.settings.ai.provider === aiSettings.provider && store.getState().resume.settings.ai.apiKey === aiSettings.apiKey;
     setTestStatus('testing');
     setTestMessage(null);
     try {
-      let res: Response;
-      if (aiSettings.provider === 'openai') {
-        res = await fetch('https://api.openai.com/v1/models', {
-          headers: { Authorization: `Bearer ${aiSettings.apiKey}` },
-        });
-      } else if (aiSettings.provider === 'gemini') {
-        res = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(aiSettings.apiKey)}`
-        );
-      } else {
-        setTestStatus('fail');
-        setTestMessage('Select OpenAI or Gemini first.');
-        return;
-      }
-
-      if (res.ok) {
-        setTestStatus('ok');
-        setTestMessage('Key works. Requests go from your browser to the provider only.');
-      } else if (res.status === 401 || res.status === 403) {
-        setTestStatus('fail');
-        setTestMessage('Invalid or unauthorized API key.');
-      } else if (res.status === 429) {
-        setTestStatus('fail');
-        setTestMessage('Rate limited — try again shortly.');
-      } else {
-        setTestStatus('fail');
-        setTestMessage(`Provider returned ${res.status}.`);
-      }
-    } catch {
+      await listModels(aiSettings);
+      if (!isCurrent()) return;
+      setTestStatus('ok');
+      setTestMessage('Model listing succeeded. This does not verify generation access, model compatibility, or billing quota.');
+    } catch (err) {
+      if (!isCurrent()) return;
       setTestStatus('fail');
-      setTestMessage('Network error — could not reach the provider.');
+      setTestMessage(humanizeAIError(err));
     }
-    setTimeout(() => {
-      setTestStatus('idle');
-    }, 6000);
   };
 
   return (
@@ -130,14 +118,14 @@ const AISettingsForm: React.FC = () => {
       <div>
         <h2 className={`text-lg font-bold ${dm ? 'text-white' : 'text-gray-900'}`}>AI Settings</h2>
         <p className={`text-sm mt-1 ${dm ? 'text-gray-400' : 'text-gray-500'}`}>
-          Optional AI for bullet rewrites and summary generation. Everything else works offline without a key.
+          Optional AI for writing suggestions. Local editing and checks work without a key; AI review and career chat require a provider, and live job search requires internet access.
         </p>
       </div>
 
       <div className={`p-4 rounded-xl border-l-4 border-green-500 ${dm ? 'bg-green-900/20' : 'bg-green-50'}`}>
-        <p className={`text-sm font-semibold ${dm ? 'text-green-300' : 'text-green-700'}`}>All features work without AI</p>
+        <p className={`text-sm font-semibold ${dm ? 'text-green-300' : 'text-green-700'}`}>Core resume tools work without AI</p>
         <p className={`text-xs mt-1 ${dm ? 'text-green-400' : 'text-green-600'}`}>
-          Rule-based suggestions (weak verbs, metrics, keyword matching) stay free. AI only upgrades rewrite quality.
+          Local writing checks and keyword matching stay free. AI output may be inaccurate; review every suggestion before using it.
         </p>
       </div>
 
@@ -157,14 +145,18 @@ const AISettingsForm: React.FC = () => {
       </div>
 
       <div className={cardCls}>
-        <label className={labelCls}>AI Provider</label>
-        <div className="grid grid-cols-3 gap-2 mt-1">
+        <div id="ai-provider-label" className={labelCls}>AI Provider</div>
+        <div role="group" aria-labelledby="ai-provider-label" className="grid grid-cols-3 gap-2 mt-1">
           {(['none', 'openai', 'gemini'] as const).map(p => (
             <button
               key={p}
               type="button"
+              aria-pressed={aiSettings.provider === p}
               onClick={() => {
-                dispatch(updateAISettings({ provider: p }));
+                if (aiSettings.provider === p) return;
+                modelRequest.current++;
+                keyRequest.current++;
+                dispatch(updateAISettings({ provider: p, apiKey: '', model: '' }));
                 setTestStatus('idle');
                 setTestMessage(null);
                 setCustomMode(false);
@@ -186,7 +178,7 @@ const AISettingsForm: React.FC = () => {
           <div className="mt-4 space-y-3">
             <div>
               <div className="flex items-center justify-between mb-1">
-                <label className={labelCls}>API Key</label>
+                <label htmlFor="ai-api-key" className={labelCls}>API Key</label>
                 <a
                   href={
                     aiSettings.provider === 'openai'
@@ -197,11 +189,12 @@ const AISettingsForm: React.FC = () => {
                   rel="noopener noreferrer"
                   className="text-xs text-indigo-500 flex items-center gap-1 hover:underline"
                 >
-                  Get free key <ExternalLink className="h-3 w-3" />
+                  Get API key (usage may cost money) <ExternalLink className="h-3 w-3" />
                 </a>
               </div>
               <div className="relative">
                 <input
+                  id="ai-api-key"
                   className={inputCls}
                   type={showKey ? 'text' : 'password'}
                   value={aiSettings.apiKey}
@@ -222,11 +215,11 @@ const AISettingsForm: React.FC = () => {
 
             <div>
               <div className="flex items-center justify-between mb-1">
-                <label className={`${labelCls} mb-0`}>Model</label>
+                <label htmlFor="ai-model" className={`${labelCls} mb-0`}>Model</label>
                 <button
                   type="button"
                   onClick={() => void refreshModels()}
-                  disabled={!aiSettings.apiKey || modelsLoading}
+                  disabled={!aiSettings.apiKey.trim() || modelsLoading}
                   className={`flex items-center gap-1 text-xs font-medium disabled:opacity-40 disabled:cursor-not-allowed ${dm ? 'text-indigo-300 hover:text-indigo-200' : 'text-indigo-600 hover:text-indigo-700'}`}
                   title="Fetch the current list of models available to your API key"
                 >
@@ -235,8 +228,9 @@ const AISettingsForm: React.FC = () => {
                 </button>
               </div>
               <select
+                id="ai-model"
                 className={inputCls}
-                value={customMode ? CUSTOM_MODEL_VALUE : (aiSettings.model || '')}
+                value={customMode || !isKnownModel ? CUSTOM_MODEL_VALUE : (aiSettings.model || '')}
                 onChange={e => {
                   if (e.target.value === CUSTOM_MODEL_VALUE) {
                     setCustomMode(true);
@@ -253,7 +247,7 @@ const AISettingsForm: React.FC = () => {
               </select>
               {fetchedModels && fetchedModels.length > 0 ? (
                 <p className={`text-xs mt-1 ${dm ? 'text-green-400' : 'text-green-600'}`}>
-                  Showing {fetchedModels.length} live model{fetchedModels.length === 1 ? '' : 's'} available to your key.
+                  Provider listed {fetchedModels.length} candidate model{fetchedModels.length === 1 ? '' : 's'}. Generation compatibility and quota are not verified.
                 </p>
               ) : modelsError ? (
                 <p className={`text-xs mt-1 ${dm ? 'text-amber-300' : 'text-amber-700'}`}>
@@ -263,9 +257,10 @@ const AISettingsForm: React.FC = () => {
                 <p className={`text-xs mt-1 ${dm ? 'text-gray-500' : 'text-gray-400'}`}>
                   Add an API key to fetch the live model list from the provider.
                 </p>
-              ) : null}
-              {customMode && (
+              ) : <p className={`text-xs mt-1 ${dm ? 'text-gray-400' : 'text-gray-600'}`}>Static presets are unverified and may be deprecated. Refresh explicitly to request the provider's model list.</p>}
+              {(customMode || !isKnownModel) && (
                 <input
+                  aria-label="Custom AI model name"
                   className={`${inputCls} mt-2`}
                   value={aiSettings.model || ''}
                   onChange={e => dispatch(updateAISettings({ model: e.target.value }))}
@@ -282,7 +277,7 @@ const AISettingsForm: React.FC = () => {
             <button
               type="button"
               onClick={() => void handleTestKey()}
-              disabled={!aiSettings.apiKey || testStatus === 'testing'}
+              disabled={!aiSettings.apiKey.trim() || testStatus === 'testing'}
               className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
                 testStatus === 'ok'
                   ? 'bg-green-600 text-white'
@@ -293,7 +288,7 @@ const AISettingsForm: React.FC = () => {
             >
               {testStatus === 'ok' ? (
                 <>
-                  <CheckCircle className="h-4 w-4" /> Key valid
+                  <CheckCircle className="h-4 w-4" /> Model listing succeeded
                 </>
               ) : testStatus === 'fail' ? (
                 <>
@@ -308,7 +303,7 @@ const AISettingsForm: React.FC = () => {
               )}
             </button>
             {testMessage && (
-              <p className={`text-xs ${testStatus === 'ok' || testStatus === 'idle' ? (dm ? 'text-gray-400' : 'text-gray-600') : 'text-red-500'}`}>
+              <p role="status" className={`text-xs ${testStatus === 'ok' || testStatus === 'idle' ? (dm ? 'text-gray-400' : 'text-gray-600') : 'text-red-500'}`}>
                 {testMessage}
               </p>
             )}
@@ -323,12 +318,12 @@ const AISettingsForm: React.FC = () => {
             {
               icon: '✏️',
               feature: 'Bullet rewrite',
-              desc: 'Sparkle icon on experience bullets. Falls back to rule-based rewrite if AI fails or is off.',
+              desc: 'Preview and accept suggestions on experience bullets. AI failures are shown, not silently replaced. With AI off, only local whitespace cleanup is offered.',
             },
             {
               icon: '📝',
               feature: 'Summary generator',
-              desc: 'AI Generate in Personal Info. Errors surface in the UI; rule-based summary is the fallback.',
+              desc: 'Summary generation uses supplied facts. Local summaries are available with provider set to None; configured provider failures are errors, not fallback text.',
             },
             {
               icon: '🎯',

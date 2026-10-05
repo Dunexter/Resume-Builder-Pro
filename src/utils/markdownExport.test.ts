@@ -45,6 +45,27 @@ const baseResume = (): ResumeData => ({
 });
 
 describe('buildMarkdown', () => {
+  it('escapes Markdown and raw HTML in all user content', () => {
+    const data = baseResume();
+    data.personalInfo.name = '# [Name] *bold*';
+    data.personalInfo.summary = '<script>alert(1)</script> & **injected**\n1. list';
+    const md = buildMarkdown(data);
+    expect(md).toContain('\\# \\[Name\\] \\*bold\\*');
+    expect(md).toContain('&lt;script&gt;');
+    expect(md).toContain('&amp; \\*\\*injected\\*\\*');
+    expect(md).toContain('1\\. list');
+    expect(md).not.toContain('<script>');
+  });
+
+  it('links only HTTP(S) destinations and encodes destination delimiters', () => {
+    const data = baseResume();
+    data.sectionOrder.push({ id: 'projects', type: 'projects', name: 'Projects', visible: true });
+    data.sections.projects = [{ id: 'p', title: 'Link', year: '', description: '', url: 'javascript:alert(1)' }];
+    expect(buildMarkdown(data)).not.toContain('](javascript:');
+    data.sections.projects[0].url = 'https://example.com/a(b)?q=x';
+    expect(buildMarkdown(data)).toContain('](https://example.com/a%28b%29?q=x)');
+  });
+
   it('includes name and summary', () => {
     const md = buildMarkdown(baseResume());
     expect(md).toContain('# Jane Doe');

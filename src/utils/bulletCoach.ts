@@ -14,11 +14,6 @@ const FILLER_WORDS = [
   'dynamic', 'synergy', 'leverage', 'utilize', 'innovative', 'strategic',
 ];
 
-const STRONG_VERBS = [
-  'Led', 'Built', 'Developed', 'Architected', 'Optimized', 'Drove',
-  'Delivered', 'Designed', 'Implemented', 'Created', 'Reduced', 'Increased',
-];
-
 export type BulletIssueType =
   | 'weak_verb'
   | 'passive_voice'
@@ -50,12 +45,12 @@ export function analyzeBullet(ach: string): BulletIssue[] {
   const issues: BulletIssue[] = [];
   const lower = trimmed.toLowerCase();
 
-  const foundWeak = WEAK_VERBS.find(v => lower.startsWith(v) || lower.includes(` ${v} `));
+  const foundWeak = WEAK_VERBS.find(v => new RegExp(`\\b${v}\\b`, 'i').test(lower));
   if (foundWeak) {
     issues.push({
       type: 'weak_verb',
       label: LABEL.weak_verb,
-      suggestion: `Replace "${foundWeak}" with a strong action verb (Led, Built, Drove…).`,
+      suggestion: `Clarify "${foundWeak}" if possible, without overstating your contribution.`,
     });
   }
 
@@ -71,7 +66,7 @@ export function analyzeBullet(ach: string): BulletIssue[] {
     issues.push({
       type: 'no_metric',
       label: LABEL.no_metric,
-      suggestion: 'Add a number or metric (%, $, users, time saved).',
+      suggestion: 'Include a verified metric or outcome if available. Never invent numbers.',
     });
   }
 
@@ -91,7 +86,7 @@ export function analyzeBullet(ach: string): BulletIssue[] {
     });
   }
 
-  const foundFiller = FILLER_WORDS.find(f => lower.includes(f.toLowerCase()));
+  const foundFiller = FILLER_WORDS.find(f => new RegExp(`\\b${f}\\b`, 'i').test(lower));
   if (foundFiller) {
     issues.push({
       type: 'filler_word',
@@ -103,34 +98,9 @@ export function analyzeBullet(ach: string): BulletIssue[] {
   return issues;
 }
 
-/** Rule-based one-click improve (mirrors atsUtils rewrite). */
+/** Safe local cleanup, not a claim-changing rewrite. Preserve qualifiers and contribution level. */
 export function quickFixBullet(bullet: string): string {
-  const trimmed = bullet.trim();
-  if (!trimmed) return trimmed;
-  const lower = trimmed.toLowerCase();
-
-  for (const weak of WEAK_VERBS) {
-    if (lower.startsWith(weak)) {
-      const rest = trimmed.slice(weak.length);
-      const strong = STRONG_VERBS[Math.floor(Math.random() * STRONG_VERBS.length)];
-      return strong + rest;
-    }
-  }
-
-  const firstWord = trimmed.split(' ')[0];
-  const isStrong = STRONG_VERBS.some(v => v.toLowerCase() === firstWord.toLowerCase());
-  if (!isStrong) {
-    const strong = STRONG_VERBS[Math.floor(Math.random() * STRONG_VERBS.length)];
-    return strong + ' ' + trimmed.charAt(0).toLowerCase() + trimmed.slice(1);
-  }
-
-  // Strip common fillers
-  let out = trimmed;
-  for (const f of FILLER_WORDS) {
-    const re = new RegExp(`\\b${f.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'gi');
-    out = out.replace(re, '').replace(/\s{2,}/g, ' ').trim();
-  }
-  return out || trimmed;
+  return bullet.trim().replace(/\s+/g, ' ');
 }
 
 export function experienceWritingScore(

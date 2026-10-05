@@ -1,6 +1,6 @@
 import { v4 as uuidv4 } from 'uuid';
 import { ResumeData, ResumeRecord, ResumeVersion } from '../types/resume';
-import { loadResume, saveResume } from '../db/resumeDB';
+import { loadResume, updateResumeRecord } from '../db/resumeDB';
 
 export const MAX_VERSIONS = 20;
 
@@ -13,9 +13,6 @@ export async function createSnapshot(
   data: ResumeData,
   label?: string
 ): Promise<ResumeVersion[]> {
-  const record = await loadResume(resumeId);
-  if (!record) throw new Error('Resume not found');
-
   const version: ResumeVersion = {
     id: uuidv4(),
     label: label?.trim() || `Snapshot ${new Date().toLocaleString()}`,
@@ -23,19 +20,12 @@ export async function createSnapshot(
     data: cloneData(data),
   };
 
-  let versions = [version, ...(record.versions || [])];
-  if (versions.length > MAX_VERSIONS) {
-    versions = versions.slice(0, MAX_VERSIONS);
-  }
-
-  const updated: ResumeRecord = {
+  const updated = await updateResumeRecord(resumeId, record => ({
     ...record,
-    data,
-    versions,
+    versions: [version, ...(record.versions || [])].slice(0, MAX_VERSIONS),
     updatedAt: new Date().toISOString(),
-  };
-  await saveResume(updated);
-  return versions;
+  }));
+  return updated.versions;
 }
 
 export async function listVersions(resumeId: string): Promise<ResumeVersion[]> {
@@ -44,11 +34,12 @@ export async function listVersions(resumeId: string): Promise<ResumeVersion[]> {
 }
 
 export async function deleteVersion(resumeId: string, versionId: string): Promise<ResumeVersion[]> {
-  const record = await loadResume(resumeId);
-  if (!record) return [];
-  const versions = (record.versions || []).filter(v => v.id !== versionId);
-  await saveResume({ ...record, versions, updatedAt: new Date().toISOString() });
-  return versions;
+  const updated = await updateResumeRecord(resumeId, record => ({
+    ...record,
+    versions: (record.versions || []).filter(v => v.id !== versionId),
+    updatedAt: new Date().toISOString(),
+  }));
+  return updated.versions;
 }
 
 export async function renameVersion(
@@ -56,16 +47,17 @@ export async function renameVersion(
   versionId: string,
   label: string
 ): Promise<ResumeVersion[]> {
-  const record = await loadResume(resumeId);
-  if (!record) return [];
-  const versions = (record.versions || []).map(v =>
-    v.id === versionId ? { ...v, label: label.trim() || v.label } : v
-  );
-  await saveResume({ ...record, versions });
-  return versions;
+  const updated = await updateResumeRecord(resumeId, record => ({
+    ...record,
+    versions: (record.versions || []).map(v =>
+      v.id === versionId ? { ...v, label: label.trim() || v.label } : v
+    ),
+    updatedAt: new Date().toISOString(),
+  }));
+  return updated.versions;
 }
 
-/** Restore returns the version data; caller should load into Redux and persist. */
+/** Read a detached copy without changing the active resume or history. */
 export async function getVersionData(
   resumeId: string,
   versionId: string
@@ -73,6 +65,31 @@ export async function getVersionData(
   const record = await loadResume(resumeId);
   const v = record?.versions?.find(x => x.id === versionId);
   return v ? cloneData(v.data) : null;
+}
+
+/** Capture the target before trimming history, all under the same write lock. */
+export async function restoreVersion(
+  resumeId: string,
+  versionId: string,
+  currentData: ResumeData,
+  checkEditor?: () => void,
+): Promise<ResumeRecord> {
+  const safetySnapshot: ResumeVersion = {
+    id: uuidv4(), label: 'Before restore', createdAt: new Date().toISOString(),
+    data: cloneData(currentData),
+  };
+  return updateResumeRecord(resumeId, record => {
+    checkEditor?.();
+    const target = record.versions?.find(version => version.id === versionId);
+    if (!target) throw new Error('Version not found');
+    return {
+      ...record,
+      data: cloneData(target.data),
+      jdMatchScore: undefined,
+      versions: [safetySnapshot, ...(record.versions || [])].slice(0, MAX_VERSIONS),
+      updatedAt: new Date().toISOString(),
+    };
+  });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

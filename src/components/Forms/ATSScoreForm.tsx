@@ -1,14 +1,14 @@
 import React, { useState } from 'react';
-import { CheckCircle, AlertCircle, XCircle, Target, RefreshCw, FileText, Shield, Upload, X } from 'lucide-react';
+import { CheckCircle, AlertCircle, XCircle, RefreshCw, FileText, Shield, Upload, X } from 'lucide-react';
 import { useAppSelector } from '../../hooks';
 import { lintATSCompatibility, checkContentQuality, getCategoryScores, lintRawResumeText, checkRawContentQuality } from '../../utils/atsUtils';
 import { extractTextFromFile } from '../../utils/resumeFileParser';
-import { ATSRule, ATSLintResult, ContentQualityResult } from '../../types/resume';
+import { ATSRule, ATSLintResult } from '../../types/resume';
 
 interface UploadedAnalysis {
   fileName: string;
   lint: ATSLintResult;
-  quality: ContentQualityResult;
+  quality: ReturnType<typeof checkRawContentQuality>;
   wordCount: number;
 }
 
@@ -32,6 +32,7 @@ const ATSScoreForm: React.FC = () => {
     if (!file) return;
 
     setParseError(null);
+    setUploaded(null);
     setParsing(true);
     try {
       const text = await extractTextFromFile(file);
@@ -68,9 +69,10 @@ const ATSScoreForm: React.FC = () => {
   return (
     <div className="space-y-5">
       <h2 className={`text-lg font-bold ${dm ? 'text-white' : 'text-gray-900'}`}>ATS Score & Analysis</h2>
+      <p className={`text-xs ${dm ? 'text-gray-400' : 'text-gray-600'}`}>Local heuristic checks, not a guarantee of ATS parsing or selection. {tab === 'upload' ? 'Uploaded text cannot verify the original file layout or fonts.' : 'Only enabled sections with content are analyzed.'}</p>
 
       {/* Score gauges */}
-      <div className="grid grid-cols-2 gap-3">
+      {(tab !== 'upload' || uploaded) && <div className="grid grid-cols-2 gap-3">
         {/* ATS Parse Safety */}
         <div className={`${cardCls} text-center`}>
           <div className="relative inline-flex items-center justify-center mb-2">
@@ -83,7 +85,7 @@ const ATSScoreForm: React.FC = () => {
           </div>
           <div className={`text-xs font-semibold ${dm ? 'text-gray-300' : 'text-gray-600'}`}>ATS Parse Safety</div>
           <div className={`text-xs mt-1 ${activeLint.passed ? 'text-green-500' : 'text-red-400'}`}>
-            {activeLint.passed ? '✓ Likely to Pass' : '✗ Needs Work'}
+            {activeLint.passed ? 'Most checks passed' : 'Review flagged checks'}
           </div>
         </div>
         {/* Content Quality */}
@@ -94,22 +96,22 @@ const ATSScoreForm: React.FC = () => {
               <path d="M18 2 a16 16 0 1 1 0 32 a16 16 0 1 1 0 -32" fill="none" className={scoreRing(activeQuality.score)} strokeWidth="3" strokeLinecap="round"
                 strokeDasharray={`${activeQuality.score} 100`} />
             </svg>
-            <span className={`absolute text-xl font-bold ${scoreColor(activeQuality.score)}`}>{activeQuality.score}</span>
+            <span className={`absolute text-xl font-bold ${scoreColor(activeQuality.score)}`}>{activeQuality.analyzedCount ? activeQuality.score : 'N/A'}</span>
           </div>
           <div className={`text-xs font-semibold ${dm ? 'text-gray-300' : 'text-gray-600'}`}>Content Quality</div>
-          <div className={`text-xs mt-1 ${dm ? 'text-gray-400' : 'text-gray-500'}`}>{activeQuality.issues.length} issues found</div>
+          <div className={`text-xs mt-1 ${dm ? 'text-gray-400' : 'text-gray-500'}`}>{activeQuality.analyzedCount ? `${activeQuality.issues.length} issues in ${activeQuality.analyzedCount} analyzed passages` : 'No analyzable content'}</div>
         </div>
-      </div>
+      </div>}
 
       {/* Tabs */}
-      <div className={`flex gap-1 p-1 rounded-xl ${dm ? 'bg-gray-800' : 'bg-gray-100'}`}>
-        <button onClick={() => setTab('lint')} className={tab === 'lint' ? tabActiveCls : tabInactiveCls}>
+      <div className={`flex flex-wrap gap-1 p-1 rounded-xl ${dm ? 'bg-gray-800' : 'bg-gray-100'}`}>
+        <button aria-pressed={tab === 'lint'} onClick={() => setTab('lint')} className={tab === 'lint' ? tabActiveCls : tabInactiveCls}>
           <Shield className="h-3.5 w-3.5 inline mr-1.5" />ATS Rules ({lintResult.rules.filter(r => r.status === 'fail').length} fail)
         </button>
-        <button onClick={() => setTab('quality')} className={tab === 'quality' ? tabActiveCls : tabInactiveCls}>
+        <button aria-pressed={tab === 'quality'} onClick={() => setTab('quality')} className={tab === 'quality' ? tabActiveCls : tabInactiveCls}>
           <FileText className="h-3.5 w-3.5 inline mr-1.5" />Content ({qualityResult.issues.length} issues)
         </button>
-        <button onClick={() => setTab('upload')} className={tab === 'upload' ? tabActiveCls : tabInactiveCls}>
+        <button aria-pressed={tab === 'upload'} onClick={() => setTab('upload')} className={tab === 'upload' ? tabActiveCls : tabInactiveCls}>
           <Upload className="h-3.5 w-3.5 inline mr-1.5" />Upload Resume
         </button>
       </div>
@@ -135,10 +137,10 @@ const ATSScoreForm: React.FC = () => {
             )}
           </div>
 
-          <label className={`mt-3 flex flex-col items-center justify-center gap-2 border-2 border-dashed rounded-xl px-4 py-6 cursor-pointer transition-colors ${
+          <label className={`mt-3 flex flex-col items-center justify-center gap-2 border-2 border-dashed rounded-xl px-4 py-6 cursor-pointer transition-colors focus-within:ring-2 focus-within:ring-indigo-500 ${
             dm ? 'border-gray-700 hover:border-indigo-500 hover:bg-gray-700/40' : 'border-gray-300 hover:border-indigo-400 hover:bg-indigo-50/50'
           }`}>
-            <input type="file" accept=".pdf,.docx,.txt" className="hidden" onChange={e => void handleFileUpload(e)} disabled={parsing} />
+            <input aria-label="Upload resume for local ATS analysis" type="file" accept=".pdf,.docx,.txt" className="sr-only" onChange={e => void handleFileUpload(e)} disabled={parsing} />
             {parsing ? (
               <>
                 <RefreshCw className="h-6 w-6 text-indigo-500 animate-spin" />
@@ -156,7 +158,7 @@ const ATSScoreForm: React.FC = () => {
           </label>
 
           {parseError && (
-            <div className={`mt-3 text-xs p-2.5 rounded-lg ${dm ? 'bg-red-900/30 text-red-300' : 'bg-red-50 text-red-700'}`}>
+            <div role="alert" className={`mt-3 text-xs p-2.5 rounded-lg ${dm ? 'bg-red-900/30 text-red-300' : 'bg-red-50 text-red-700'}`}>
               {parseError}
             </div>
           )}
@@ -187,6 +189,7 @@ const ATSScoreForm: React.FC = () => {
                     (dm ? 'bg-red-900/20' : 'bg-red-50')
                   }`}>
                     <StatusIcon status={rule.status} />
+                    <span className="sr-only">{rule.status}</span>
                     <div className="flex-1 min-w-0">
                       <div className={`text-sm font-medium ${dm ? 'text-gray-200' : 'text-gray-800'}`}>{rule.label}</div>
                       <div className={`text-xs mt-0.5 ${dm ? 'text-gray-400' : 'text-gray-600'}`}>{rule.detail}</div>
@@ -204,13 +207,16 @@ const ATSScoreForm: React.FC = () => {
         </div>
       )}
 
-      {tab === 'quality' && (
+      {(tab === 'quality' || (tab === 'upload' && uploaded)) && (
         <div className="space-y-3">
-          {activeQuality.issues.length === 0 ? (
+          <h3 className={`text-sm font-semibold ${dm ? 'text-white' : 'text-gray-900'}`}>{tab === 'upload' ? 'Uploaded content issues' : 'Content issues'}</h3>
+          {activeQuality.analyzedCount === 0 ? (
+            <div className={cardCls}>No analyzable {tab === 'upload' ? 'bullet points were detected in the extracted text. This does not mean the file has no writing issues.' : 'passages yet. Add experience bullets, project descriptions, award descriptions, or custom content.'}</div>
+          ) : activeQuality.issues.length === 0 ? (
             <div className={`${cardCls} text-center py-8`}>
               <CheckCircle className="h-10 w-10 text-green-500 mx-auto mb-3" />
-              <div className={`font-semibold ${dm ? 'text-white' : 'text-gray-900'}`}>Excellent content quality!</div>
-              <div className={`text-sm mt-1 ${dm ? 'text-gray-400' : 'text-gray-500'}`}>No weak verbs, passive voice, or missing metrics detected.</div>
+              <div className={`font-semibold ${dm ? 'text-white' : 'text-gray-900'}`}>No issues detected by these checks</div>
+              <div className={`text-sm mt-1 ${dm ? 'text-gray-400' : 'text-gray-500'}`}>Review accuracy, relevance, and wording yourself; these checks are limited.</div>
             </div>
           ) : activeQuality.issues.map((issue, i) => (
             <div key={i} className={`${cardCls} space-y-2`}>

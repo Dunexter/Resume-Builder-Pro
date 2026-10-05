@@ -1,280 +1,227 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { X, Plus, Trash2, FileText, Copy, Clock, Download, Upload } from 'lucide-react';
+import { X, Plus, Trash2, FileText, Copy, Clock, Download, Upload, Pencil } from 'lucide-react';
 import { useAppDispatch, useAppSelector } from '../../hooks';
-import {
-  setActiveResumeId,
-  loadResumeData,
-  addResumeToList,
-  removeResumeFromList,
-  setResumeList,
-  updateSettings,
-} from '../../store/resumeSlice';
-import { initialResumeData } from '../../store/resumeSlice';
-import { listResumes, saveResume, deleteResume, loadSettings } from '../../db/resumeDB';
+import { initialResumeData, setResumeList, updateSettings } from '../../store/resumeSlice';
+import { listResumes, loadResume, saveResume, loadSettings, updateResumeRecord } from '../../db/resumeDB';
 import { ResumeRecord } from '../../types/resume';
 import { v4 as uuidv4 } from 'uuid';
-import {
-  exportWorkspaceBackup,
-  importWorkspaceBackup,
-  readBackupFile,
-} from '../../utils/backupUtils';
+import { createEditorResume, deleteEditorResume, flushEditor, openEditorRecord } from '../../utils/editorPersistence';
+import { exportWorkspaceBackup, importWorkspaceBackup, readBackupFile, ImportMode, WorkspaceBackup } from '../../utils/backupUtils';
+import Dialog from './Dialog';
 
 interface Props { onClose: () => void; }
 
 const ResumeManager: React.FC<Props> = ({ onClose }) => {
   const dispatch = useAppDispatch();
   const activeResumeId = useAppSelector(state => state.resume.activeResumeId);
-  const currentData = useAppSelector(state => state.resume.data);
-  const darkMode = useAppSelector(state => state.resume.settings.darkMode);
+  const hydrated = useAppSelector(state => state.resume.hydrated);
+  const dm = useAppSelector(state => state.resume.settings.darkMode);
   const [resumes, setResumes] = useState<ResumeRecord[]>([]);
   const [loading, setLoading] = useState(true);
-  const [backupBusy, setBackupBusy] = useState(false);
-  const [backupMsg, setBackupMsg] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const busyRef = useRef(false);
+  const [error, setError] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
   const [includeApiKey, setIncludeApiKey] = useState(false);
+  const [pendingBackup, setPendingBackup] = useState<WorkspaceBackup | null>(null);
+  const [importMode, setImportMode] = useState<ImportMode>('merge');
+  const [editing, setEditing] = useState<{ id: string; name: string; targetJob: string } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const dm = darkMode;
+  const disabled = busy || loading || !hydrated;
 
   const refreshList = async () => {
     const list = await listResumes();
     const sorted = list.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
     setResumes(sorted);
-    dispatch(setResumeList(sorted.map(r => ({
-      id: r.id,
-      name: r.name,
-      updatedAt: r.updatedAt,
-      targetJob: r.targetJob,
-    }))));
+    dispatch(setResumeList(sorted.map(({ id, name, updatedAt, targetJob }) => ({ id, name, updatedAt, targetJob }))));
     return sorted;
   };
 
   useEffect(() => {
-    refreshList().finally(() => setLoading(false));
-  }, []);
+    let cancelled = false;
+    listResumes().then(list => {
+      if (cancelled) return;
+      const sorted = list.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+      setResumes(sorted);
+      dispatch(setResumeList(sorted.map(({ id, name, updatedAt, targetJob }) => ({ id, name, updatedAt, targetJob }))));
+    }).catch(err => {
+      if (!cancelled) setError(err instanceof Error ? err.message : 'Could not load resumes.');
+    }).finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [dispatch]);
 
-  const handleNewResume = async () => {
-    const id = uuidv4();
-    const now = new Date().toISOString();
-    const record: ResumeRecord = {
-      id,
-      name: 'New Resume',
-      createdAt: now,
-      updatedAt: now,
-      data: { ...initialResumeData, personalInfo: { ...initialResumeData.personalInfo, name: '', email: '', phone: '', summary: '' } },
-      versions: [],
-    };
-    await saveResume(record);
-    dispatch(addResumeToList({ id, name: 'New Resume' }));
-    dispatch(setActiveResumeId(id));
-    dispatch(loadResumeData(record.data));
-    onClose();
-  };
-
-  const handleDuplicate = async (record: ResumeRecord) => {
-    const id = uuidv4();
-    const now = new Date().toISOString();
-    const dup: ResumeRecord = { ...record, id, name: `${record.name} (copy)`, createdAt: now, updatedAt: now, versions: [] };
-    await saveResume(dup);
-    setResumes(prev => [dup, ...prev]);
-    dispatch(addResumeToList({ id, name: dup.name }));
-  };
-
-  const handleSwitch = async (record: ResumeRecord) => {
-    const existing = resumes.find(r => r.id === activeResumeId);
-    if (existing) {
-      await saveResume({ ...existing, data: currentData, updatedAt: new Date().toISOString() });
-    }
-    dispatch(setActiveResumeId(record.id));
-    dispatch(loadResumeData(record.data));
-    onClose();
-  };
-
-  const handleDelete = async (id: string) => {
-    if (resumes.length === 1) return;
-    await deleteResume(id);
-    setResumes(prev => prev.filter(r => r.id !== id));
-    dispatch(removeResumeFromList(id));
-    if (id === activeResumeId) {
-      const remaining = resumes.filter(r => r.id !== id);
-      if (remaining.length > 0) {
-        dispatch(setActiveResumeId(remaining[0].id));
-        dispatch(loadResumeData(remaining[0].data));
-      }
-    }
-  };
-
-  const handleExport = async () => {
-    setBackupBusy(true);
-    setBackupMsg(null);
+  const run = async (operation: () => Promise<void>) => {
+    if (busyRef.current || loading || !hydrated) return;
+    busyRef.current = true;
+    setBusy(true);
+    setError(null);
+    setMessage(null);
     try {
-      // Persist current editor state before export
-      const existing = resumes.find(r => r.id === activeResumeId);
-      if (existing) {
-        await saveResume({
-          ...existing,
-          data: currentData,
-          name: currentData.personalInfo.name || existing.name,
-          updatedAt: new Date().toISOString(),
-        });
-      }
-      await exportWorkspaceBackup({ includeApiKey });
-      setBackupMsg(includeApiKey
-        ? 'Backup downloaded (includes API key — keep this file private).'
-        : 'Backup downloaded (API key excluded).');
-    } catch (e) {
-      setBackupMsg(e instanceof Error ? e.message : 'Export failed.');
+      await operation();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'The operation failed. Please try again.');
     } finally {
-      setBackupBusy(false);
+      busyRef.current = false;
+      setBusy(false);
     }
   };
 
-  const handleImportFile = async (file: File) => {
-    setBackupBusy(true);
-    setBackupMsg(null);
+  const close = () => { if (!busyRef.current) onClose(); };
+
+  const handleSwitch = (id: string) => run(async () => {
+    await flushEditor();
+    const record = await loadResume(id);
+    if (!record) throw new Error('This resume no longer exists. Close and reopen My Resumes to refresh.');
+    openEditorRecord(record);
+    onClose();
+  });
+
+  const handleDuplicate = (id: string) => run(async () => {
+    await flushEditor();
+    // The list is only a display snapshot; duplicate the freshly persisted editor/record.
+    const record = await loadResume(id);
+    if (!record) throw new Error('This resume no longer exists.');
+    const now = new Date().toISOString();
+    await saveResume({ ...record, id: uuidv4(), name: `${record.name} (copy)`, createdAt: now, updatedAt: now, versions: [] });
+    await refreshList();
+    setMessage('Resume duplicated.');
+  });
+
+  const handleMetadataSave = () => {
+    if (!editing) return;
+    const { id, name, targetJob } = editing;
+    if (!name.trim()) { setError('Enter a document name.'); return; }
+    return run(async () => {
+      await flushEditor();
+      await updateResumeRecord(id, record => ({ ...record, name: name.trim(), targetJob: targetJob.trim(), updatedAt: new Date().toISOString() }));
+      await refreshList();
+      setEditing(null);
+      setMessage('Resume details updated.');
+    });
+  };
+
+  const handleImportFile = (file: File) => run(async () => {
     try {
       const backup = await readBackupFile(file);
-      const mode = window.confirm(
-        `Import ${backup.resumes.length} resume(s)?\n\n` +
-        `OK = Merge (upsert by id, keep other local resumes)\n` +
-        `Cancel = stop\n\n` +
-        `After this dialog you can choose Replace-all if you prefer.`
-      );
-      if (!mode) {
-        setBackupBusy(false);
-        return;
-      }
-
-      const replace = window.confirm(
-        'Replace ALL local resumes and cover letters with this backup?\n\n' +
-        'OK = Replace all\nCancel = Merge only'
-      );
-
-      const result = await importWorkspaceBackup(backup, replace ? 'replace' : 'merge');
-
-      if (result.settingsImported) {
-        const settings = await loadSettings();
-        if (settings) dispatch(updateSettings(settings));
-      }
-
-      const sorted = await refreshList();
-      if (sorted.length > 0) {
-        const active = sorted.find(r => r.id === activeResumeId) || sorted[0];
-        dispatch(setActiveResumeId(active.id));
-        dispatch(loadResumeData(active.data));
-      }
-
-      setBackupMsg(
-        `Imported ${result.resumesImported} resume(s), ${result.coverLettersImported} cover letter(s)` +
-        (result.settingsImported ? ', settings updated' : '') + '.'
-      );
-    } catch (e) {
-      setBackupMsg(e instanceof Error ? e.message : 'Import failed.');
+      setPendingBackup(backup);
+      setImportMode('merge');
+      setEditing(null);
     } finally {
-      setBackupBusy(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
     }
-  };
+  });
 
-  const cardCls = `rounded-xl border p-4 ${dm ? 'border-gray-700 bg-gray-800' : 'border-gray-200 bg-white'}`;
+  const handleRestore = () => run(async () => {
+    if (!pendingBackup) return;
+    if (importMode === 'replace' && pendingBackup.resumes.length === 0) {
+      throw new Error('Cannot replace the workspace with a backup containing no resumes. Choose Merge instead.');
+    }
+    await flushEditor();
+    const result = await importWorkspaceBackup(pendingBackup, importMode);
+    const sorted = await refreshList();
+    const nextId = sorted.find(record => record.id === activeResumeId)?.id || sorted[0]?.id;
+    if (nextId) {
+      const record = await loadResume(nextId);
+      if (!record) throw new Error('Could not reopen the restored resume.');
+      openEditorRecord(record);
+    }
+    if (result.settingsImported) {
+      const settings = await loadSettings();
+      if (settings) dispatch(updateSettings(settings));
+    }
+    setPendingBackup(null);
+    setMessage(`Imported ${result.resumesImported} resume(s), ${result.coverLettersImported} cover letter(s)${result.settingsImported ? ', settings updated' : ''}.`);
+  });
+
+  const buttonClass = `flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium disabled:opacity-40 ${dm ? 'bg-gray-800 hover:bg-gray-700 text-gray-200' : 'bg-gray-100 hover:bg-gray-200 text-gray-700'}`;
+  const fieldClass = `mt-1 w-full rounded-lg border px-3 py-2 text-sm ${dm ? 'bg-gray-900 border-gray-600 text-white' : 'bg-white border-gray-300 text-gray-900'}`;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
-      <div className={`relative z-10 w-full max-w-2xl max-h-[85vh] rounded-2xl shadow-2xl overflow-hidden flex flex-col ${dm ? 'bg-gray-900' : 'bg-gray-50'}`}>
-        <div className={`flex items-center justify-between p-5 border-b flex-shrink-0 ${dm ? 'border-gray-700' : 'border-gray-200'}`}>
+    <Dialog labelledBy="resume-manager-title" onClose={busy ? undefined : close}
+      className={`w-full min-w-0 max-w-2xl max-h-[85vh] rounded-2xl shadow-2xl overflow-hidden flex flex-col ${dm ? 'bg-gray-900 text-white' : 'bg-gray-50 text-gray-900'}`}>
+      <div aria-busy={busy} className="flex min-h-0 flex-col">
+        <div className={`flex flex-wrap items-center justify-between gap-3 p-5 border-b shrink-0 ${dm ? 'border-gray-700' : 'border-gray-200'}`}>
           <div>
-            <h2 className={`text-lg font-bold ${dm ? 'text-white' : 'text-gray-900'}`}>My Resumes</h2>
-            <p className={`text-sm ${dm ? 'text-gray-400' : 'text-gray-500'}`}>Switch between resumes or create tailored versions per job</p>
+            <h2 id="resume-manager-title" className="text-lg font-bold">My Resumes</h2>
+            <p className="text-sm text-gray-500">Manage documents and tailored versions per job</p>
           </div>
-          <div className="flex items-center gap-2">
-            <button onClick={handleNewResume} className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 text-white rounded-lg text-sm hover:bg-indigo-700 transition-colors">
-              <Plus className="h-3.5 w-3.5" /> New Resume
-            </button>
-            <button onClick={onClose} className={`p-2 rounded-xl ${dm ? 'hover:bg-gray-800 text-gray-400' : 'hover:bg-gray-100 text-gray-500'}`}><X className="h-4 w-4" /></button>
+          <button onClick={close} disabled={busy} aria-label="Close resume manager" className={`${buttonClass} ml-auto`}><X className="h-4 w-4" /></button>
+        </div>
+        <div className="overflow-y-auto min-h-0 p-5 space-y-4">
+          <div className="flex flex-wrap gap-2">
+            <button disabled={disabled || !!pendingBackup} onClick={() => void run(async () => {
+              await createEditorResume(initialResumeData, 'New Resume');
+              onClose();
+            })} className={buttonClass}><Plus className="h-4 w-4" />New Resume</button>
+            <button disabled={disabled || !!pendingBackup} onClick={() => void run(async () => {
+              await flushEditor();
+              onClose();
+              window.dispatchEvent(new CustomEvent('open-resume-import'));
+            })} className={buttonClass}><Upload className="h-4 w-4" />Import document</button>
+            <button disabled={disabled || !!pendingBackup} onClick={() => void run(async () => {
+              await flushEditor();
+              await exportWorkspaceBackup({ includeApiKey });
+              setMessage(includeApiKey ? 'Backup downloaded (includes API key; keep this file private).' : 'Backup downloaded (API key excluded).');
+            })} className={buttonClass}><Download className="h-4 w-4" />Export All</button>
+            <button disabled={disabled || !!pendingBackup} onClick={() => fileInputRef.current?.click()} className={buttonClass}><Upload className="h-4 w-4" />Import backup</button>
+            <input ref={fileInputRef} type="file" accept="application/json,.json" aria-label="Backup file" className="hidden" disabled={disabled || !!pendingBackup}
+              onChange={event => { const file = event.target.files?.[0]; if (file) void handleImportFile(file); }} />
+            <label className="flex w-full items-center gap-2 text-xs text-gray-500">
+              <input type="checkbox" checked={includeApiKey} disabled={disabled || !!pendingBackup} onChange={event => setIncludeApiKey(event.target.checked)} />
+              Include AI API key in export
+            </label>
           </div>
-        </div>
-
-        {/* Backup bar */}
-        <div className={`px-5 py-3 border-b flex flex-wrap items-center gap-2 flex-shrink-0 ${dm ? 'border-gray-700 bg-gray-900/80' : 'border-gray-200 bg-white'}`}>
-          <button
-            type="button"
-            disabled={backupBusy}
-            onClick={handleExport}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${dm ? 'bg-gray-800 hover:bg-gray-700 text-gray-200' : 'bg-gray-100 hover:bg-gray-200 text-gray-700'}`}
-          >
-            <Download className="h-3.5 w-3.5" />
-            Export All
-          </button>
-          <button
-            type="button"
-            disabled={backupBusy}
-            onClick={() => fileInputRef.current?.click()}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${dm ? 'bg-gray-800 hover:bg-gray-700 text-gray-200' : 'bg-gray-100 hover:bg-gray-200 text-gray-700'}`}
-          >
-            <Upload className="h-3.5 w-3.5" />
-            Import All
-          </button>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="application/json,.json"
-            className="hidden"
-            onChange={(e) => {
-              const f = e.target.files?.[0];
-              if (f) void handleImportFile(f);
-            }}
-          />
-          <label className={`flex items-center gap-1.5 text-xs cursor-pointer ${dm ? 'text-gray-400' : 'text-gray-500'}`}>
-            <input
-              type="checkbox"
-              checked={includeApiKey}
-              onChange={(e) => setIncludeApiKey(e.target.checked)}
-              className="rounded border-gray-400"
-            />
-            Include AI API key in export
-          </label>
-          {backupMsg && (
-            <p className={`w-full text-xs mt-1 ${dm ? 'text-gray-300' : 'text-gray-600'}`}>{backupMsg}</p>
-          )}
-        </div>
-
-        <div className="p-5 overflow-y-auto flex-1 space-y-3">
-          {loading ? (
-            <div className="text-center py-10 text-gray-400">Loading...</div>
-          ) : resumes.map(r => (
-            <div key={r.id} className={`${cardCls} flex items-center gap-4 ${r.id === activeResumeId ? (dm ? 'border-indigo-600 ring-1 ring-indigo-600' : 'border-indigo-400 ring-1 ring-indigo-400') : ''}`}>
-              <div className={`p-2.5 rounded-xl ${dm ? 'bg-gray-700' : 'bg-gray-100'}`}>
-                <FileText className={`h-5 w-5 ${r.id === activeResumeId ? 'text-indigo-500' : (dm ? 'text-gray-400' : 'text-gray-600')}`} />
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className={`font-semibold text-sm ${dm ? 'text-white' : 'text-gray-900'}`}>
-                  {r.name}
-                  {r.id === activeResumeId && <span className="ml-2 text-xs text-indigo-500 font-medium">Active</span>}
+          {busy && <p role="status" className="text-sm text-gray-500">Working... Please keep this window open.</p>}
+          {error && <p role="alert" className="text-sm text-red-500 break-words">{error}</p>}
+          {message && <p role="status" className="text-sm text-gray-500">{message}</p>}
+          {pendingBackup && <section aria-label="Restore backup" className={`rounded-xl border p-4 space-y-3 ${dm ? 'border-gray-700' : 'border-gray-200'}`}>
+            <h3 className="font-semibold">Restore {pendingBackup.resumes.length} resume(s)</h3>
+            <label className="block text-sm">Restore mode
+              <select value={importMode} disabled={busy} onChange={event => setImportMode(event.target.value as ImportMode)} className={fieldClass}>
+                <option value="merge">Merge with local workspace</option>
+                <option value="replace">Replace local workspace</option>
+              </select>
+            </label>
+            <p className="text-sm text-gray-500">{importMode === 'merge'
+              ? 'Keeps all local documents. Matching IDs are imported as separate copies, including their cover letters. Backup settings, if present, are applied.'
+              : 'Deletes ALL local resumes and cover letters, then restores this backup. Backup settings, if present, are applied. This cannot be undone.'}</p>
+            <div className="flex flex-wrap gap-2">
+              <button disabled={busy} onClick={() => void handleRestore()} className={buttonClass}>{importMode === 'replace' ? 'Replace all and restore' : 'Merge backup'}</button>
+              <button disabled={busy} onClick={() => { setPendingBackup(null); setError(null); }} className={buttonClass}>Cancel import</button>
+            </div>
+          </section>}
+          {loading ? <p className="py-8 text-center text-gray-500">Loading...</p> : resumes.map(record => (
+            <div key={record.id} className={`rounded-xl border p-4 ${dm ? 'border-gray-700 bg-gray-800' : 'border-gray-200 bg-white'} ${record.id === activeResumeId ? 'ring-1 ring-indigo-500' : ''}`}>
+              <div className="flex flex-wrap items-center gap-3">
+                <FileText className="h-5 w-5 shrink-0 text-indigo-500" />
+                <div className="flex-1 min-w-0 break-words">
+                  <div className="font-semibold text-sm">{record.name}{record.id === activeResumeId && <span className="ml-2 text-xs text-indigo-500">Active</span>}</div>
+                  {record.targetJob && <div className="text-xs text-gray-500">Target: {record.targetJob}</div>}
+                  <div className="flex items-center gap-1 text-xs text-gray-500 mt-1"><Clock className="h-3 w-3" />{new Date(record.updatedAt).toLocaleDateString()}</div>
                 </div>
-                {r.targetJob && <div className={`text-xs ${dm ? 'text-gray-400' : 'text-gray-500'}`}>Target: {r.targetJob}</div>}
-                <div className={`flex items-center gap-1 text-xs ${dm ? 'text-gray-500' : 'text-gray-400'} mt-0.5`}>
-                  <Clock className="h-3 w-3" />
-                  {new Date(r.updatedAt).toLocaleDateString()} {new Date(r.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                <div className="flex flex-wrap items-center gap-1">
+                  {record.id !== activeResumeId && <button disabled={disabled || !!pendingBackup || !!editing} onClick={() => void handleSwitch(record.id)} aria-label={`Open ${record.name}`} className={buttonClass}>Open</button>}
+                  <button disabled={disabled || !!pendingBackup || !!editing} onClick={() => { setEditing({ id: record.id, name: record.name, targetJob: record.targetJob || '' }); setError(null); }} aria-label={`Edit details for ${record.name}`} className={buttonClass}><Pencil className="h-4 w-4" /></button>
+                  <button disabled={disabled || !!pendingBackup || !!editing} onClick={() => void handleDuplicate(record.id)} aria-label={`Duplicate ${record.name}`} className={buttonClass}><Copy className="h-4 w-4" /></button>
+                  <button disabled={disabled || !!pendingBackup || !!editing || resumes.length === 1} onClick={() => {
+                    if (window.confirm(`Delete "${record.name}"? This cannot be undone.`)) void run(async () => { await deleteEditorResume(record.id); await refreshList(); });
+                  }} aria-label={`Delete ${record.name}`} className={buttonClass}><Trash2 className="h-4 w-4 text-red-500" /></button>
                 </div>
               </div>
-              <div className="flex items-center gap-1 flex-shrink-0">
-                {r.id !== activeResumeId && (
-                  <button onClick={() => handleSwitch(r)} className="px-3 py-1.5 text-xs font-medium text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors">
-                    Open
-                  </button>
-                )}
-                <button onClick={() => handleDuplicate(r)} className={`p-1.5 rounded-lg transition-colors ${dm ? 'hover:bg-gray-700 text-gray-400' : 'hover:bg-gray-100 text-gray-500'}`} title="Duplicate">
-                  <Copy className="h-3.5 w-3.5" />
-                </button>
-                <button onClick={() => handleDelete(r.id)} disabled={resumes.length === 1} className="p-1.5 rounded-lg text-red-400 hover:bg-red-50 transition-colors disabled:opacity-30" title="Delete">
-                  <Trash2 className="h-3.5 w-3.5" />
-                </button>
-              </div>
+              {editing?.id === record.id && <form className="mt-4 space-y-3" onSubmit={event => { event.preventDefault(); void handleMetadataSave(); }}>
+                <label className="block text-sm">Document name<input value={editing.name} disabled={busy} onChange={event => setEditing({ ...editing, name: event.target.value })} className={fieldClass} required /></label>
+                <label className="block text-sm">Target job<input value={editing.targetJob} disabled={busy} onChange={event => setEditing({ ...editing, targetJob: event.target.value })} className={fieldClass} placeholder="e.g. Frontend engineer at Acme" /></label>
+                <p className="text-xs text-gray-500">These labels do not change your personal name or job description.</p>
+                <div className="flex flex-wrap gap-2">
+                  <button type="submit" disabled={busy || !editing.name.trim()} className={buttonClass}>Save details</button>
+                  <button type="button" disabled={busy} onClick={() => { setEditing(null); setError(null); }} className={buttonClass}>Cancel edit</button>
+                </div>
+              </form>}
             </div>
           ))}
         </div>
       </div>
-    </div>
+    </Dialog>
   );
 };
 

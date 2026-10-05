@@ -30,6 +30,13 @@ const baseResume = (): ResumeData => ({
 });
 
 describe('buildLatex', () => {
+  it('escapes in one pass without re-escaping generated commands', () => {
+    const data = baseResume();
+    data.personalInfo.summary = '\\ & % $ # _ { } ~ ^';
+    expect(buildLatex(data)).toContain('\\textbackslash{} \\& \\% \\$ \\# \\_ \\{ \\} \\textasciitilde{} \\textasciicircum{}');
+    expect(buildLatex(data)).not.toContain('\\textbackslash\\{');
+  });
+
   it('produces a compilable-looking LaTeX document', () => {
     const tex = buildLatex(baseResume());
     expect(tex).toContain('\\documentclass');

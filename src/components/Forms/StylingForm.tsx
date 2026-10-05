@@ -2,7 +2,7 @@ import React from 'react';
 import { useAppSelector, useAppDispatch } from '../../hooks';
 import { updateStyling, setShowTemplateGallery } from '../../store/resumeSlice';
 import { ResumeData } from '../../types/resume';
-import { Layers, Palette } from 'lucide-react';
+import { Layers } from 'lucide-react';
 
 const FONTS = ['Arial', 'Calibri', 'Georgia', 'Times New Roman', 'Helvetica', 'Verdana'];
 
@@ -49,6 +49,7 @@ const StylingForm: React.FC = () => {
           {TEMPLATES.map(t => (
             <button
               key={t.id}
+              aria-pressed={styling.template === t.id}
               onClick={() => dispatch(updateStyling({ template: t.id }))}
               className={`w-full flex items-center gap-3 p-3 rounded-xl border-2 text-left transition-all ${
                 styling.template === t.id
@@ -56,7 +57,7 @@ const StylingForm: React.FC = () => {
                   : (dm ? 'border-gray-700 hover:border-gray-600' : 'border-gray-200 hover:border-gray-300')
               }`}
             >
-              <span className="text-2xl">{t.preview}</span>
+              <span aria-hidden="true" className="text-2xl">{t.preview}</span>
               <div>
                 <div className={`text-sm font-semibold ${dm ? 'text-gray-200' : 'text-gray-800'}`}>{t.label}</div>
                 <div className={`text-xs ${dm ? 'text-gray-400' : 'text-gray-500'}`}>{t.description}</div>
@@ -74,6 +75,7 @@ const StylingForm: React.FC = () => {
           {PALETTES.map(p => (
             <button
               key={p.label}
+              aria-pressed={styling.colors.primary === p.primary && styling.colors.secondary === p.secondary && styling.colors.accent === p.accent}
               onClick={() => dispatch(updateStyling({ colors: { primary: p.primary, secondary: p.secondary, accent: p.accent } }))}
               className={`p-2.5 rounded-xl border-2 transition-all ${styling.colors.primary === p.primary ? 'border-indigo-500 scale-105' : (dm ? 'border-gray-700' : 'border-gray-200')}`}
             >
@@ -90,10 +92,10 @@ const StylingForm: React.FC = () => {
         <div className="grid grid-cols-3 gap-2 pt-2 border-t border-gray-200 dark:border-gray-700">
           {(['primary', 'secondary', 'accent'] as const).map(key => (
             <div key={key}>
-              <label className={labelCls}>{key.charAt(0).toUpperCase() + key.slice(1)}</label>
+              <label htmlFor={`styling-${key}-hex`} className={labelCls}>{key.charAt(0).toUpperCase() + key.slice(1)}</label>
               <div className="flex gap-1.5 items-center">
-                <input type="color" value={styling.colors[key] || '#000000'} onChange={e => dispatch(updateStyling({ colors: { ...styling.colors, [key]: e.target.value } }))} className="w-8 h-8 rounded cursor-pointer border-0 p-0.5" />
-                <input className={`${inputCls} text-xs py-1 flex-1`} value={styling.colors[key] || ''} onChange={e => dispatch(updateStyling({ colors: { ...styling.colors, [key]: e.target.value } }))} />
+                <input aria-label={`${key} color picker`} type="color" value={styling.colors[key] || '#000000'} onChange={e => dispatch(updateStyling({ colors: { ...styling.colors, [key]: e.target.value } }))} className="w-8 h-8 rounded cursor-pointer border-0 p-0.5" />
+                <input id={`styling-${key}-hex`} className={`${inputCls} text-xs py-1 flex-1 min-w-0`} value={styling.colors[key] || ''} onChange={e => dispatch(updateStyling({ colors: { ...styling.colors, [key]: e.target.value } }))} />
               </div>
             </div>
           ))}
@@ -104,20 +106,20 @@ const StylingForm: React.FC = () => {
       <div className={cardCls}>
         <h3 className={`text-sm font-bold ${dm ? 'text-gray-200' : 'text-gray-800'}`}>Typography</h3>
         <div>
-          <label className={labelCls}>Font Family</label>
-          <select className={inputCls} value={styling.fontFamily} onChange={e => dispatch(updateStyling({ fontFamily: e.target.value }))}>
+          <label htmlFor="styling-font-family" className={labelCls}>Font Family</label>
+          <select id="styling-font-family" className={inputCls} value={styling.fontFamily} onChange={e => dispatch(updateStyling({ fontFamily: e.target.value }))}>
             {FONTS.map(f => <option key={f} value={f}>{f}</option>)}
           </select>
           <p className={`mt-1 text-xs ${dm ? 'text-gray-500' : 'text-gray-400'}`}>All options are ATS-safe fonts.</p>
         </div>
         <div>
-          <label className={labelCls}>Font Size: {styling.fontSize}pt</label>
-          <input type="range" min="9" max="13" step="0.5" value={styling.fontSize} onChange={e => dispatch(updateStyling({ fontSize: parseFloat(e.target.value) }))} className="w-full accent-indigo-600" />
+          <label htmlFor="styling-font-size" className={labelCls}>Font Size: {styling.fontSize}pt</label>
+          <input id="styling-font-size" aria-valuetext={`${styling.fontSize} points`} type="range" min="9" max="13" step="0.5" value={styling.fontSize} onChange={e => dispatch(updateStyling({ fontSize: parseFloat(e.target.value) }))} className="w-full accent-indigo-600" />
           <div className={`flex justify-between text-xs ${dm ? 'text-gray-500' : 'text-gray-400'}`}><span>9pt</span><span className="font-medium text-indigo-500">10–12pt optimal</span><span>13pt</span></div>
         </div>
         <div>
-          <label className={labelCls}>Line Spacing: {styling.spacing}×</label>
-          <input type="range" min="1.0" max="1.8" step="0.1" value={styling.spacing} onChange={e => dispatch(updateStyling({ spacing: parseFloat(e.target.value) }))} className="w-full accent-indigo-600" />
+          <label htmlFor="styling-spacing" className={labelCls}>Line Spacing: {styling.spacing}×</label>
+          <input id="styling-spacing" aria-valuetext={`${styling.spacing} times`} type="range" min="1.0" max="1.8" step="0.1" value={styling.spacing} onChange={e => dispatch(updateStyling({ spacing: parseFloat(e.target.value) }))} className="w-full accent-indigo-600" />
           <div className={`flex justify-between text-xs ${dm ? 'text-gray-500' : 'text-gray-400'}`}><span>Compact 1.0</span><span>Spacious 1.8</span></div>
         </div>
       </div>

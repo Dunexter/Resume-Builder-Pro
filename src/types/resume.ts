@@ -146,11 +146,16 @@ export interface CoverLetter {
   companyName: string;
   jobTitle: string;
   content: string;
+  style?: string;
   createdAt: string;
   updatedAt: string;
 }
 
 export interface ResumeState {
+  hydrated: boolean;
+  revision: number;
+  saveStatus: 'saved' | 'dirty' | 'saving' | 'error';
+  saveError: string | null;
   // Multi-resume support
   resumeList: { id: string; name: string; updatedAt: string; targetJob?: string }[];
   activeResumeId: string;

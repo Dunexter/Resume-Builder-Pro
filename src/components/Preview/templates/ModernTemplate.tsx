@@ -1,6 +1,7 @@
 import React from 'react';
 import { ResumeData } from '../../../types/resume';
 import { fmtDate } from '../shared/fmtDate';
+import { EducationDetails, CertificationDetails } from '../shared/EntryDetails';
 
 const ModernTemplate: React.FC<{ data: ResumeData }> = ({ data }) => {
   const { personalInfo, sections, sectionOrder, styling } = data;
@@ -50,8 +51,8 @@ const ModernTemplate: React.FC<{ data: ResumeData }> = ({ data }) => {
                 <div key={section.id} style={{ marginBottom: 16 }}>
                   <SectionTitle>{section.name}</SectionTitle>
                   {sections.skills.map(s => (
-                    <div key={s.id} style={{ marginBottom: 4, display: 'flex', gap: 8, alignItems: 'baseline' }}>
-                      <span style={{ fontWeight: 700, color: ac, minWidth: 100, flexShrink: 0 }}>{s.category}</span>
+                    <div key={s.id} data-pdf-row style={{ marginBottom: 4, display: 'flex', gap: 8, alignItems: 'baseline' }}>
+                      {s.category.trim() && <span style={{ fontWeight: 700, color: ac, minWidth: 100, flexShrink: 0 }}>{s.category}</span>}
                       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
                         {s.skills.split(',').map((sk, i) => (
                           <span key={i} style={{ backgroundColor: `${ac}18`, color: pc, padding: '1px 8px', borderRadius: 12, fontSize: `${fs * 0.85}pt`, border: `1px solid ${ac}40` }}>
@@ -68,7 +69,7 @@ const ModernTemplate: React.FC<{ data: ResumeData }> = ({ data }) => {
                 <div key={section.id} style={{ marginBottom: 16 }}>
                   <SectionTitle>{section.name}</SectionTitle>
                   {sections.experience.map(exp => (
-                    <div key={exp.id} style={{ marginBottom: 12, paddingLeft: 12, borderLeft: `2px solid ${ac}40` }}>
+                    <div key={exp.id} data-pdf-row style={{ marginBottom: 12, paddingLeft: 12, borderLeft: `2px solid ${ac}40` }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                         <div>
                           <div style={{ fontWeight: 700, color: pc }}>{exp.position}</div>
@@ -99,11 +100,12 @@ const ModernTemplate: React.FC<{ data: ResumeData }> = ({ data }) => {
                 <div key={section.id} style={{ marginBottom: 16 }}>
                   <SectionTitle>{section.name}</SectionTitle>
                   {sections.education.map(edu => (
-                    <div key={edu.id} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+                    <div key={edu.id} data-pdf-row style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
                       <div>
                         <div style={{ fontWeight: 700, color: pc }}>{edu.institution}</div>
                         <div style={{ color: sc }}>{edu.degree} in {edu.field}{edu.gpa ? ` · GPA: ${edu.gpa}` : ''}</div>
                         {edu.coursework && <div style={{ fontSize: `${fs * 0.85}pt`, color: '#666', marginTop: 2 }}>{edu.coursework}</div>}
+                        <EducationDetails entry={edu} />
                       </div>
                       <div style={{ fontSize: `${fs * 0.85}pt`, color: '#888', flexShrink: 0, textAlign: 'right' }}>
                         {fmtDate(edu.startDate)} – {fmtDate(edu.endDate)}
@@ -117,13 +119,14 @@ const ModernTemplate: React.FC<{ data: ResumeData }> = ({ data }) => {
                 <div key={section.id} style={{ marginBottom: 16 }}>
                   <SectionTitle>{section.name}</SectionTitle>
                   {sections.projects.map(proj => (
-                    <div key={proj.id} style={{ marginBottom: 8 }}>
+                    <div key={proj.id} data-pdf-row style={{ marginBottom: 8 }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                         <span style={{ fontWeight: 700, color: ac }}>{proj.title}</span>
                         {proj.year && <span style={{ fontSize: `${fs * 0.85}pt`, color: '#888' }}>{proj.year}</span>}
                       </div>
                       {proj.description && <div style={{ fontSize: `${fs * 0.9}pt`, color: '#444', marginTop: 2 }}>{proj.description}</div>}
                       {proj.technologies && <div style={{ fontSize: `${fs * 0.85}pt`, marginTop: 2, color: sc }}>{proj.technologies}</div>}
+                      {proj.url && <div style={{ fontSize: `${fs * 0.85}pt`, color: sc }}>{proj.url}</div>}
                     </div>
                   ))}
                 </div>
@@ -133,7 +136,7 @@ const ModernTemplate: React.FC<{ data: ResumeData }> = ({ data }) => {
                 <div key={section.id} style={{ marginBottom: 16 }}>
                   <SectionTitle>{section.name}</SectionTitle>
                   {sections.awards.map(aw => (
-                    <div key={aw.id} style={{ marginBottom: 5, display: 'flex', justifyContent: 'space-between' }}>
+                    <div key={aw.id} data-pdf-row style={{ marginBottom: 5, display: 'flex', justifyContent: 'space-between' }}>
                       <div>
                         <span style={{ fontWeight: 600, color: pc }}>{aw.title}</span>
                         {aw.issuer && <span style={{ color: '#888', fontSize: `${fs * 0.88}pt` }}> · {aw.issuer}</span>}
@@ -149,8 +152,8 @@ const ModernTemplate: React.FC<{ data: ResumeData }> = ({ data }) => {
                 <div key={section.id} style={{ marginBottom: 16 }}>
                   <SectionTitle>{section.name}</SectionTitle>
                   {sections.certifications.map(cert => (
-                    <div key={cert.id} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                      <div><span style={{ fontWeight: 600 }}>{cert.name}</span>{cert.issuer && <span style={{ color: sc }}> · {cert.issuer}</span>}</div>
+                    <div key={cert.id} data-pdf-row style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                      <div><span style={{ fontWeight: 600 }}>{cert.name}</span>{cert.issuer && <span style={{ color: sc }}> · {cert.issuer}</span>}<CertificationDetails entry={cert} /></div>
                       {cert.date && <span style={{ fontSize: `${fs * 0.85}pt`, color: '#888' }}>{cert.date}</span>}
                     </div>
                   ))}
@@ -162,7 +165,7 @@ const ModernTemplate: React.FC<{ data: ResumeData }> = ({ data }) => {
                 <div key={section.id} style={{ marginBottom: 16 }}>
                   <SectionTitle>{cs.name}</SectionTitle>
                   {cs.entries.map(e => (
-                    <div key={e.id} style={{ marginBottom: 5 }}>
+                    <div key={e.id} data-pdf-row style={{ marginBottom: 5 }}>
                       {e.title && <div style={{ fontWeight: 600, color: pc }}>{e.title}</div>}
                       {e.content && <div style={{ fontSize: `${fs * 0.9}pt` }}>{e.content}</div>}
                     </div>

@@ -1,14 +1,8 @@
 import { AppSettings, CoverLetter, ResumeRecord } from '../types/resume';
-import {
-  listResumes,
-  saveResume,
-  deleteResume,
-  loadSettings,
-  saveSettings,
-  listAllCoverLetters,
-  saveCoverLetter,
-  deleteCoverLetter,
-} from '../db/resumeDB';
+import { loadWorkspaceRecords, restoreWorkspaceRecords } from '../db/resumeDB';
+import { MAX_BACKUP_FILE_BYTES, validateAppSettings, validateTimestamp, validateWorkspaceRecords } from './resumeSchema';
+
+export { MAX_BACKUP_FILE_BYTES } from './resumeSchema';
 
 export const BACKUP_SCHEMA_VERSION = 1;
 
@@ -48,11 +42,7 @@ function redactSettings(settings: AppSettings | undefined, includeApiKey: boolea
 /** Build and download a full workspace backup JSON file. */
 export async function exportWorkspaceBackup(options?: { includeApiKey?: boolean }): Promise<void> {
   const includeApiKey = options?.includeApiKey === true;
-  const [resumes, settings, coverLetters] = await Promise.all([
-    listResumes(),
-    loadSettings(),
-    listAllCoverLetters(),
-  ]);
+  const { records: resumes, settings, letters: coverLetters } = await loadWorkspaceRecords();
 
   const backup: WorkspaceBackup = {
     schemaVersion: BACKUP_SCHEMA_VERSION,
@@ -64,18 +54,34 @@ export async function exportWorkspaceBackup(options?: { includeApiKey?: boolean 
     includesApiKey: includeApiKey && !!settings?.ai?.apiKey,
   };
 
+  validateWorkspaceBackup(backup);
+  if (new Blob([JSON.stringify(backup, null, 2)]).size > MAX_BACKUP_FILE_BYTES) {
+    throw new Error('Workspace exceeds the backup file size limit.');
+  }
   const stamp = new Date().toISOString().slice(0, 10);
   downloadJson(`resume-builder-pro-backup-${stamp}.json`, backup);
 }
 
-export function isWorkspaceBackup(value: unknown): value is WorkspaceBackup {
-  if (!value || typeof value !== 'object') return false;
+export function validateWorkspaceBackup(value: unknown): asserts value is WorkspaceBackup {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid workspace backup.');
   const v = value as Record<string, unknown>;
-  if (v.app !== 'resume-builder-pro' && v.app !== undefined) {
-    // allow missing app for slightly older hand-made files if resumes array looks valid
+  const fields = ['schemaVersion', 'exportedAt', 'app', 'resumes', 'settings', 'coverLetters', 'includesApiKey'];
+  if (Object.keys(v).some(key => !fields.includes(key))) throw new Error('Unknown workspace backup field.');
+  if (v.app !== 'resume-builder-pro') throw new Error('Not a ResumeBuilder Pro backup.');
+  if (v.schemaVersion !== BACKUP_SCHEMA_VERSION) throw new Error('Unsupported backup schema version.');
+  validateTimestamp(v.exportedAt, 'backup.exportedAt');
+  validateWorkspaceRecords(v.resumes, v.coverLetters);
+  if (v.settings !== undefined) validateAppSettings(v.settings);
+  if (v.includesApiKey !== undefined && typeof v.includesApiKey !== 'boolean') {
+    throw new Error('Invalid backup includesApiKey flag.');
   }
-  if (!Array.isArray(v.resumes)) return false;
-  return v.resumes.every((r) => r && typeof r === 'object' && typeof (r as ResumeRecord).id === 'string' && (r as ResumeRecord).data);
+  if (v.includesApiKey === false && (v.settings as AppSettings | undefined)?.ai.apiKey) {
+    throw new Error('Backup declares redacted settings but contains an API key.');
+  }
+}
+
+export function isWorkspaceBackup(value: unknown): value is WorkspaceBackup {
+  try { validateWorkspaceBackup(value); return true; } catch { return false; }
 }
 
 export type ImportMode = 'merge' | 'replace';
@@ -88,83 +94,41 @@ export interface ImportResult {
 
 /**
  * Import a workspace backup.
- * - merge: upsert by id (overwrite same ids, keep others)
- * - replace: delete all local resumes + cover letters, then import
+ * - merge: preserve local records and remap colliding incoming IDs
+ * - replace: atomically replace resumes and cover letters
  */
 export async function importWorkspaceBackup(
-  backup: WorkspaceBackup,
+  backup: unknown,
   mode: ImportMode,
   options?: { importSettings?: boolean }
 ): Promise<ImportResult> {
-  const importSettings = options?.importSettings !== false;
-
-  if (mode === 'replace') {
-    const existing = await listResumes();
-    for (const r of existing) {
-      await deleteResume(r.id);
-    }
-    const existingCls = await listAllCoverLetters();
-    for (const cl of existingCls) {
-      await deleteCoverLetter(cl.id);
-    }
-  }
-
-  for (const record of backup.resumes) {
-    await saveResume({
-      ...record,
-      versions: record.versions || [],
-      updatedAt: record.updatedAt || new Date().toISOString(),
-      createdAt: record.createdAt || new Date().toISOString(),
-    });
-  }
-
-  let coverLettersImported = 0;
-  for (const cl of backup.coverLetters || []) {
-    if (!cl?.id) continue;
-    await saveCoverLetter(cl);
-    coverLettersImported += 1;
-  }
-
-  let settingsImported = false;
-  if (importSettings && backup.settings) {
-    const current = await loadSettings();
-    const incoming = backup.settings;
-    // Never wipe a local API key with an empty redacted key unless the backup intentionally includes keys
-    const apiKey =
-      backup.includesApiKey || incoming.ai?.apiKey
-        ? incoming.ai?.apiKey || ''
-        : current?.ai?.apiKey || '';
-    await saveSettings({
-      ...current,
-      ...incoming,
-      ai: {
-        provider: incoming.ai?.provider ?? current?.ai?.provider ?? 'none',
-        apiKey,
-        model: incoming.ai?.model ?? current?.ai?.model ?? '',
-      },
-      darkMode: incoming.darkMode ?? current?.darkMode ?? false,
-      autoSave: incoming.autoSave ?? current?.autoSave ?? true,
-    });
-    settingsImported = true;
-  }
+  validateWorkspaceBackup(backup);
+  if (new Blob([JSON.stringify(backup)]).size > MAX_BACKUP_FILE_BYTES) throw new Error('Backup exceeds the file size limit.');
+  if (mode !== 'merge' && mode !== 'replace') throw new Error('Invalid backup import mode.');
+  const settingsImported = options?.importSettings !== false && backup.settings !== undefined;
+  await restoreWorkspaceRecords(backup.resumes, backup.coverLetters,
+    settingsImported ? backup.settings : undefined, mode === 'replace',
+    { preserveRedactedApiKey: backup.includesApiKey !== true });
 
   return {
     resumesImported: backup.resumes.length,
-    coverLettersImported,
+    coverLettersImported: backup.coverLetters.length,
     settingsImported,
   };
 }
 
 export async function readBackupFile(file: File): Promise<WorkspaceBackup> {
+  if (!Number.isFinite(file.size) || file.size <= 0 || file.size > MAX_BACKUP_FILE_BYTES) {
+    throw new Error('Backup file must be nonempty and no larger than 25 MiB.');
+  }
   const text = await file.text();
+  if (new Blob([text]).size > MAX_BACKUP_FILE_BYTES) throw new Error('Backup exceeds the file size limit.');
   let parsed: unknown;
   try {
     parsed = JSON.parse(text);
   } catch {
     throw new Error('Invalid JSON file.');
   }
-  if (!isWorkspaceBackup(parsed)) {
-    throw new Error('Not a valid ResumeBuilder Pro backup (missing resumes array or ids).');
-  }
-  return parsed as WorkspaceBackup;
+  validateWorkspaceBackup(parsed);
+  return parsed;
 }

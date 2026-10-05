@@ -98,6 +98,27 @@ describe('callAIChat / callAIText', () => {
 
     const body = JSON.parse(fetchMock.mock.calls[0][1].body);
     expect(body.messages).toHaveLength(2);
+    expect(body.max_completion_tokens).toBe(500);
+    expect(body.temperature).toBeUndefined();
+  });
+
+  it('sends Gemini system instructions separately, honors token limits, and joins text parts', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ candidates: [{ content: { parts: [{ text: 'private', thought: true }, { text: 'Hello ' }, { text: 'world' }] } }] }) });
+    global.fetch = fetchMock;
+    expect(await callAIChat([{ role: 'system', content: 'Rules' }, { role: 'user', content: 'Hi' }], { provider: 'gemini', apiKey: 'secret' }, 321)).toBe('Hello world');
+    const [url, options] = fetchMock.mock.calls[0];
+    expect(url).not.toContain('secret');
+    const body = JSON.parse(options.body);
+    expect(body.systemInstruction.parts[0].text).toBe('Rules');
+    expect(body.contents[0].parts[0].text).toBe('Hi');
+    expect(body.generationConfig.maxOutputTokens).toBe(321);
+  });
+
+  it('rejects truncated output instead of offering an incomplete suggestion', async () => {
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ choices: [{ finish_reason: 'length', message: { content: 'Partial' } }] }) });
+    await expect(callAIText('hi', { provider: 'openai', apiKey: 'key' })).rejects.toThrow(/truncated/i);
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ candidates: [{ finishReason: 'MAX_TOKENS', content: { parts: [{ text: 'Partial' }] } }] }) });
+    await expect(callAIText('hi', { provider: 'gemini', apiKey: 'key' })).rejects.toThrow(/truncated/i);
   });
 });
 

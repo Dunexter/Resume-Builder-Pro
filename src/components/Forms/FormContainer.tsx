@@ -1,5 +1,6 @@
 import React from 'react';
-import { useAppSelector, useAppDispatch } from '../../hooks';
+import { useAppSelector } from '../../hooks';
+import CompletionChecklist from './CompletionChecklist';
 import PersonalInfoForm from './PersonalInfoForm';
 import ExperienceForm from './ExperienceForm';
 import EducationForm from './EducationForm';
@@ -16,6 +17,7 @@ import AIReviewForm from './AIReviewForm';
 
 const FormContainer: React.FC = () => {
   const activeSection = useAppSelector(state => state.resume.activeSection);
+  const activeResumeId = useAppSelector(state => state.resume.activeResumeId);
   const sectionOrder = useAppSelector(state => state.resume.data.sectionOrder);
   const customSections = useAppSelector(state => state.resume.data.sections.custom);
   const darkMode = useAppSelector(state => state.resume.settings.darkMode);
@@ -52,6 +54,7 @@ const FormContainer: React.FC = () => {
 
   return (
     <div className={scrollCls}>
+      <CompletionChecklist key={activeResumeId} />
       {renderForm()}
     </div>
   );

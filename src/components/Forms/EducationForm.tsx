@@ -29,45 +29,45 @@ const EducationForm: React.FC = () => {
       {education.map(edu => (
         <div key={edu.id} className={cardCls}>
           <div className="flex justify-end">
-            <button onClick={() => dispatch(removeEducation(edu.id))} className="p-1.5 rounded-lg text-red-400 hover:bg-red-50 transition-colors">
+            <button aria-label={`Remove education: ${edu.institution || 'untitled'}`} onClick={() => dispatch(removeEducation(edu.id))} className="p-1.5 rounded-lg text-red-400 hover:bg-red-50 transition-colors">
               <Trash2 className="h-4 w-4" />
             </button>
           </div>
           <div>
-            <label className={labelCls}>Institution *</label>
-            <input className={inputCls} value={edu.institution} onChange={e => update(edu.id, { institution: e.target.value })} placeholder="Massachusetts Institute of Technology" />
+            <label htmlFor={`edu-${edu.id}-institution`} className={labelCls}>Institution *</label>
+            <input id={`edu-${edu.id}-institution`} aria-required="true" className={inputCls} value={edu.institution} onChange={e => update(edu.id, { institution: e.target.value })} placeholder="Massachusetts Institute of Technology" />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className={labelCls}>Degree *</label>
-              <input className={inputCls} value={edu.degree} onChange={e => update(edu.id, { degree: e.target.value })} placeholder="Bachelor of Science" />
+              <label htmlFor={`edu-${edu.id}-degree`} className={labelCls}>Degree *</label>
+              <input id={`edu-${edu.id}-degree`} aria-required="true" className={inputCls} value={edu.degree} onChange={e => update(edu.id, { degree: e.target.value })} placeholder="Bachelor of Science" />
             </div>
             <div>
-              <label className={labelCls}>Field of Study *</label>
-              <input className={inputCls} value={edu.field} onChange={e => update(edu.id, { field: e.target.value })} placeholder="Computer Science" />
+              <label htmlFor={`edu-${edu.id}-field`} className={labelCls}>Field of Study *</label>
+              <input id={`edu-${edu.id}-field`} aria-required="true" className={inputCls} value={edu.field} onChange={e => update(edu.id, { field: e.target.value })} placeholder="Computer Science" />
             </div>
             <div>
-              <label className={labelCls}>Start Date</label>
-              <input className={inputCls} type="month" value={edu.startDate} onChange={e => update(edu.id, { startDate: e.target.value })} />
+              <label htmlFor={`edu-${edu.id}-start`} className={labelCls}>Start Date</label>
+              <input id={`edu-${edu.id}-start`} className={inputCls} type="month" value={edu.startDate} onChange={e => update(edu.id, { startDate: e.target.value })} />
             </div>
             <div>
-              <label className={labelCls}>End Date (or Expected)</label>
-              <input className={inputCls} type="month" value={edu.endDate} onChange={e => update(edu.id, { endDate: e.target.value })} />
+              <label htmlFor={`edu-${edu.id}-end`} className={labelCls}>End Date (or Expected)</label>
+              <input id={`edu-${edu.id}-end`} className={inputCls} type="month" value={edu.endDate} onChange={e => update(edu.id, { endDate: e.target.value })} />
             </div>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className={labelCls}>GPA (optional)</label>
-              <input className={inputCls} value={edu.gpa || ''} onChange={e => update(edu.id, { gpa: e.target.value })} placeholder="3.9/4.0" />
+              <label htmlFor={`edu-${edu.id}-gpa`} className={labelCls}>GPA (optional)</label>
+              <input id={`edu-${edu.id}-gpa`} className={inputCls} value={edu.gpa || ''} onChange={e => update(edu.id, { gpa: e.target.value })} placeholder="3.9/4.0" />
             </div>
             <div>
-              <label className={labelCls}>Honors / Distinction</label>
-              <input className={inputCls} value={edu.honors || ''} onChange={e => update(edu.id, { honors: e.target.value })} placeholder="Summa Cum Laude" />
+              <label htmlFor={`edu-${edu.id}-honors`} className={labelCls}>Honors / Distinction</label>
+              <input id={`edu-${edu.id}-honors`} className={inputCls} value={edu.honors || ''} onChange={e => update(edu.id, { honors: e.target.value })} placeholder="Summa Cum Laude" />
             </div>
           </div>
           <div>
-            <label className={labelCls}>Relevant Coursework (optional)</label>
-            <textarea className={`${inputCls} resize-none`} rows={2} value={edu.coursework || ''} onChange={e => update(edu.id, { coursework: e.target.value })} placeholder="Data Structures, Algorithms, Machine Learning, Distributed Systems" />
+            <label htmlFor={`edu-${edu.id}-coursework`} className={labelCls}>Relevant Coursework (optional)</label>
+            <textarea id={`edu-${edu.id}-coursework`} className={`${inputCls} resize-none`} rows={2} value={edu.coursework || ''} onChange={e => update(edu.id, { coursework: e.target.value })} placeholder="Data Structures, Algorithms, Machine Learning, Distributed Systems" />
           </div>
         </div>
       ))}

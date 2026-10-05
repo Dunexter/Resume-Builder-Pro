@@ -1,12 +1,11 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   User, GraduationCap, Briefcase, Code, Trophy, Palette, Plus,
   GripVertical, Eye, EyeOff, Target, Zap, Award, FileSearch,
-  Settings, Bot, ChevronRight, ChevronUp, ChevronDown, Sparkles
+  Bot, ChevronRight, ChevronUp, ChevronDown, Sparkles, X
 } from 'lucide-react';
 import { useAppSelector, useAppDispatch } from '../../hooks';
 import { setActiveSection, updateSectionOrder, toggleSectionVisibility, addCustomSection } from '../../store/resumeSlice';
-import { SectionOrder } from '../../types/resume';
 
 const SECTION_ICONS: Record<string, React.FC<{ className?: string }>> = {
   personal: User,
@@ -38,6 +37,28 @@ const Sidebar: React.FC<SidebarProps> = ({ mobileOpen = false, onCloseMobile }) 
   const [draggedItem, setDraggedItem] = useState<string | null>(null);
   const [showAddCustom, setShowAddCustom] = useState(false);
   const [customSectionName, setCustomSectionName] = useState('');
+  const drawerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const media = window.matchMedia('(min-width: 768px)');
+    const update = () => {
+      const drawer = drawerRef.current;
+      if (!drawer) return;
+      const hidden = !media.matches && !mobileOpen;
+      drawer.toggleAttribute('inert', hidden);
+      if (hidden) drawer.setAttribute('aria-hidden', 'true');
+      else drawer.removeAttribute('aria-hidden');
+    };
+    update();
+    media.addEventListener('change', update);
+    return () => media.removeEventListener('change', update);
+  }, [mobileOpen]);
+
+  const navigate = (id: string) => {
+    dispatch(setActiveSection(id));
+    onCloseMobile?.();
+    window.dispatchEvent(new CustomEvent('resume-navigate-edit'));
+  };
 
   const dm = darkMode;
   const bg = dm ? 'bg-gray-900 border-gray-700' : 'bg-gray-50 border-gray-200';
@@ -85,10 +106,8 @@ const Sidebar: React.FC<SidebarProps> = ({ mobileOpen = false, onCloseMobile }) 
     const isActive = activeSection === id;
     return (
       <button
-        onClick={() => {
-          dispatch(setActiveSection(id));
-          onCloseMobile?.();
-        }}
+        onClick={() => navigate(id)}
+        aria-current={isActive ? 'page' : undefined}
         className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-left transition-all text-sm font-medium border ${isActive ? activeCls : `border-transparent ${hoverCls}`}`}
       >
         <Icon className="h-4 w-4 flex-shrink-0" />
@@ -105,10 +124,13 @@ const Sidebar: React.FC<SidebarProps> = ({ mobileOpen = false, onCloseMobile }) 
         <div className="fixed inset-0 z-30 bg-black/50 md:hidden" onClick={onCloseMobile} />
       )}
       <div
+        ref={drawerRef}
+        onKeyDown={e => { if (e.key === 'Escape' && !window.matchMedia('(min-width: 768px)').matches) onCloseMobile?.(); }}
         className={`w-60 border-r ${bg} flex flex-col h-full overflow-hidden flex-shrink-0 fixed inset-y-0 left-0 z-40 transition-transform duration-200 md:static md:z-auto md:translate-x-0 ${
           mobileOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
+        <button aria-label="Close navigation" onClick={onCloseMobile} className={`md:hidden self-end p-3 ${hoverCls}`}><X className="h-5 w-5" /></button>
         <div className="flex-1 overflow-y-auto p-3 space-y-1">
         {/* Top fixed: Personal */}
         <NavBtn id="personal" label="Personal Info" icon={User} />
@@ -138,13 +160,14 @@ const Sidebar: React.FC<SidebarProps> = ({ mobileOpen = false, onCloseMobile }) 
             >
               <GripVertical className={`h-3.5 w-3.5 flex-shrink-0 ${dm ? 'text-gray-600 group-hover:text-gray-400' : 'text-gray-300 group-hover:text-gray-500'}`} />
               <button
-                onClick={() => dispatch(setActiveSection(section.id))}
+                onClick={() => navigate(section.id)}
+                aria-current={isActive ? 'page' : undefined}
                 className="flex-1 flex items-center gap-2 text-left min-w-0"
               >
                 <Icon className="h-3.5 w-3.5 flex-shrink-0" />
                 <span className="truncate">{section.name}</span>
               </button>
-              <div className="flex flex-col flex-shrink-0 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
+              <div className="flex flex-col flex-shrink-0 md:opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
                 <button
                   onClick={e => { e.stopPropagation(); moveSection(index, -1); }}
                   disabled={index === 0}
@@ -185,6 +208,7 @@ const Sidebar: React.FC<SidebarProps> = ({ mobileOpen = false, onCloseMobile }) 
                 onChange={e => setCustomSectionName(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && handleAddCustomSection()}
                 placeholder="Section name"
+                aria-label="New section name"
                 autoFocus
                 className={`w-full px-2.5 py-1.5 text-sm rounded-lg border focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none ${dm ? 'bg-gray-800 border-gray-600 text-white placeholder-gray-500' : 'bg-white border-gray-300'}`}
               />

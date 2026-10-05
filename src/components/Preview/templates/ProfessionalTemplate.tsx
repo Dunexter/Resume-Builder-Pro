@@ -1,6 +1,7 @@
 import React from 'react';
 import { ResumeData } from '../../../types/resume';
 import { fmtDate } from '../shared/fmtDate';
+import { EducationDetails, CertificationDetails } from '../shared/EntryDetails';
 
 const ProfessionalTemplate: React.FC<{ data: ResumeData }> = ({ data }) => {
   const { personalInfo, sections, sectionOrder, styling } = data;
@@ -43,8 +44,8 @@ const ProfessionalTemplate: React.FC<{ data: ResumeData }> = ({ data }) => {
                   {section.name}
                 </h2>
                 {sections.skills.map(s => (
-                  <div key={s.id} style={{ marginBottom: 3 }}>
-                    <span style={{ fontWeight: 700, color: pc }}>{s.category}: </span>
+                  <div key={s.id} data-pdf-row style={{ marginBottom: 3 }}>
+                    {s.category.trim() && <span style={{ fontWeight: 700, color: pc }}>{s.category}: </span>}
                     <span>{s.skills}</span>
                   </div>
                 ))}
@@ -57,7 +58,7 @@ const ProfessionalTemplate: React.FC<{ data: ResumeData }> = ({ data }) => {
                   {section.name}
                 </h2>
                 {sections.experience.map(exp => (
-                  <div key={exp.id} style={{ marginBottom: 12 }}>
+                  <div key={exp.id} data-pdf-row style={{ marginBottom: 12 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                       <div>
                         <div style={{ fontWeight: 700, color: pc }}>{exp.company}</div>
@@ -91,7 +92,7 @@ const ProfessionalTemplate: React.FC<{ data: ResumeData }> = ({ data }) => {
                   {section.name}
                 </h2>
                 {sections.education.map(edu => (
-                  <div key={edu.id} style={{ marginBottom: 8 }}>
+                  <div key={edu.id} data-pdf-row style={{ marginBottom: 8 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                       <div>
                         <div style={{ fontWeight: 700, color: pc }}>{edu.institution}</div>
@@ -102,6 +103,7 @@ const ProfessionalTemplate: React.FC<{ data: ResumeData }> = ({ data }) => {
                       </div>
                     </div>
                     {edu.coursework && <div style={{ fontSize: `${fs * 0.88}pt`, marginTop: 2 }}><span style={{ fontWeight: 600 }}>Coursework: </span>{edu.coursework}</div>}
+                    <EducationDetails entry={edu} />
                   </div>
                 ))}
               </div>
@@ -113,7 +115,7 @@ const ProfessionalTemplate: React.FC<{ data: ResumeData }> = ({ data }) => {
                   {section.name}
                 </h2>
                 {sections.projects.map(proj => (
-                  <div key={proj.id} style={{ marginBottom: 8 }}>
+                  <div key={proj.id} data-pdf-row style={{ marginBottom: 8 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                       <span style={{ fontWeight: 700, color: pc }}>{proj.title}</span>
                       {proj.year && <span style={{ color: sc, fontSize: `${fs * 0.88}pt` }}>{proj.year}</span>}
@@ -132,7 +134,7 @@ const ProfessionalTemplate: React.FC<{ data: ResumeData }> = ({ data }) => {
                   {section.name}
                 </h2>
                 {sections.awards.map(aw => (
-                  <div key={aw.id} style={{ marginBottom: 6 }}>
+                  <div key={aw.id} data-pdf-row style={{ marginBottom: 6 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                       <span style={{ fontWeight: 700, color: pc }}>{aw.title}</span>
                       {aw.date && <span style={{ fontSize: `${fs * 0.88}pt`, color: sc }}>{aw.date}</span>}
@@ -150,10 +152,11 @@ const ProfessionalTemplate: React.FC<{ data: ResumeData }> = ({ data }) => {
                   {section.name}
                 </h2>
                 {sections.certifications.map(cert => (
-                  <div key={cert.id} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                  <div key={cert.id} data-pdf-row style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
                     <div>
                       <span style={{ fontWeight: 600 }}>{cert.name}</span>
                       {cert.issuer && <span style={{ color: sc }}> · {cert.issuer}</span>}
+                      <CertificationDetails entry={cert} />
                     </div>
                     {cert.date && <span style={{ fontSize: `${fs * 0.88}pt`, color: sc }}>{cert.date}</span>}
                   </div>
@@ -168,7 +171,7 @@ const ProfessionalTemplate: React.FC<{ data: ResumeData }> = ({ data }) => {
                   {cs.name}
                 </h2>
                 {cs.entries.map(e => (
-                  <div key={e.id} style={{ marginBottom: 6 }}>
+                  <div key={e.id} data-pdf-row style={{ marginBottom: 6 }}>
                     {e.title && <div style={{ fontWeight: 600, color: pc }}>{e.title}</div>}
                     {e.content && <div style={{ fontSize: `${fs * 0.9}pt` }}>{e.content}</div>}
                   </div>

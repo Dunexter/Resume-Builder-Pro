@@ -1,29 +1,6 @@
 import { ResumeData, JDMatchResult } from '../types/resume';
-import { extractKeywords } from './atsUtils';
-import { resumeHasKeyword } from './skillSynonyms';
-
-function getResumeText(data: ResumeData): string {
-  const parts: string[] = [
-    data.personalInfo.name,
-    data.personalInfo.summary || '',
-  ];
-  for (const exp of data.sections.experience) {
-    parts.push(exp.position, exp.company, ...exp.achievements, exp.technologies || '');
-  }
-  for (const edu of data.sections.education) {
-    parts.push(edu.degree, edu.field, edu.institution, edu.coursework || '');
-  }
-  for (const s of data.sections.skills) {
-    parts.push(s.category, s.skills);
-  }
-  for (const proj of data.sections.projects) {
-    parts.push(proj.title, proj.description, proj.technologies || '');
-  }
-  for (const aw of data.sections.awards) {
-    parts.push(aw.title, aw.description);
-  }
-  return parts.join(' ');
-}
+import { extractKeywords, getResumeText, hasKeyword } from './atsUtils';
+import { expandKeyword } from './skillSynonyms';
 
 /** JD match with skill synonym expansion (preferred over plain includes). */
 export function matchJobDescriptionWithSynonyms(
@@ -41,26 +18,26 @@ export function matchJobDescriptionWithSynonyms(
   const unique = Array.from(new Set(jdKeywords));
 
   for (const kw of unique) {
-    if (resumeHasKeyword(resumeText, kw)) matched.push(kw);
+    if (expandKeyword(kw).some(variant => hasKeyword(resumeText, variant))) matched.push(kw);
     else missing.push(kw);
   }
 
-  const totalMeaningful = Math.min(unique.length, 80);
-  const matchedMeaningful = Math.min(matched.length, totalMeaningful);
+  const totalMeaningful = unique.length;
+  const matchedMeaningful = matched.length;
   const rawScore =
     totalMeaningful === 0 ? 0 : Math.round((matchedMeaningful / totalMeaningful) * 100);
   const score = Math.min(rawScore, 100);
 
   const suggestions: string[] = [];
   if (missing.length > 0) {
-    suggestions.push(`Add these missing keywords to your resume: ${missing.slice(0, 8).join(', ')}`);
+    suggestions.push(`Consider these terms only if they accurately describe your experience: ${missing.slice(0, 8).join(', ')}`);
   }
   if (score < 50) {
     suggestions.push(
       'Your resume matches less than 50% of the job description keywords. Consider tailoring your experience bullet points.'
     );
   }
-  if (!data.personalInfo.summary) {
+  if (!data.personalInfo.summary?.trim()) {
     suggestions.push(
       'Add a professional summary that incorporates key terms from the job description.'
     );
@@ -68,8 +45,8 @@ export function matchJobDescriptionWithSynonyms(
 
   return {
     score,
-    matchedKeywords: matched.slice(0, 30),
-    missingKeywords: missing.slice(0, 30),
+    matchedKeywords: matched,
+    missingKeywords: missing,
     suggestions,
   };
 }

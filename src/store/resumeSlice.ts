@@ -1,6 +1,7 @@
 import { createSlice, PayloadAction } from '@reduxjs/toolkit';
 import {
   ResumeState,
+  ResumeRecord,
   ResumeData,
   PersonalInfo,
   EducationEntry,
@@ -34,6 +35,10 @@ const defaultSettings: AppSettings = {
 };
 
 const initialState: ResumeState = {
+  hydrated: false,
+  revision: 0,
+  saveStatus: 'saved',
+  saveError: null,
   resumeList: [{ id: DEFAULT_RESUME_ID, name: 'My Resume', updatedAt: new Date().toISOString() }],
   activeResumeId: DEFAULT_RESUME_ID,
   data: initialResumeData,
@@ -55,10 +60,46 @@ const resumeSlice = createSlice({
   name: 'resume',
   initialState,
   reducers: {
+    openResumeRecord: (state, action: PayloadAction<ResumeRecord>) => {
+      const record = action.payload;
+      state.activeResumeId = record.id;
+      state.data = record.data;
+      state.jobDescription = record.jobDescription || '';
+      state.jdMatchResult = null;
+      state.history = { past: [], future: [] };
+      state.lastSaved = record.updatedAt;
+      state.saveStatus = 'saved';
+      state.saveError = null;
+      state.revision += 1;
+      state.hydrated = true;
+      const item = { id: record.id, name: record.name, updatedAt: record.updatedAt, targetJob: record.targetJob };
+      const index = state.resumeList.findIndex(r => r.id === record.id);
+      if (index < 0) state.resumeList.push(item);
+      else state.resumeList[index] = item;
+    },
+    markEditorDirty: (state) => {
+      state.revision += 1;
+      state.jdMatchResult = null;
+      if (state.hydrated) {
+        state.saveStatus = 'dirty';
+        state.saveError = null;
+      }
+    },
+    setSaveState: (state, action: PayloadAction<{ status: ResumeState['saveStatus']; error?: string; savedAt?: string }>) => {
+      state.saveStatus = action.payload.status;
+      state.saveError = action.payload.error || null;
+      if (action.payload.savedAt) state.lastSaved = action.payload.savedAt;
+    },
     setResumeList: (state, action: PayloadAction<typeof initialState.resumeList>) => {
       state.resumeList = action.payload;
     },
     setActiveResumeId: (state, action: PayloadAction<string>) => {
+      if (state.activeResumeId !== action.payload) {
+        state.history = { past: [], future: [] };
+        state.jdMatchResult = null;
+        state.jobDescription = '';
+        state.lastSaved = null;
+      }
       state.activeResumeId = action.payload;
     },
     addResumeToList: (state, action: PayloadAction<{ id: string; name: string; targetJob?: string }>) => {
@@ -318,6 +359,7 @@ const resumeSlice = createSlice({
 });
 
 export const {
+  openResumeRecord, markEditorDirty, setSaveState,
   setResumeList,
   setActiveResumeId,
   addResumeToList,

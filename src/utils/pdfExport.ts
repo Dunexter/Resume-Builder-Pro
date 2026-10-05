@@ -1,6 +1,10 @@
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
 import { ResumeData } from '../types/resume';
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { ResumeDocument } from '../components/Preview/ResumePreview';
+import { buildTXT } from './exportUtils';
 
 function fileBase(data: ResumeData): string {
   return (data.personalInfo.name || 'resume').replace(/[/\\?%*:|"<>]/g, '-').trim() || 'resume';
@@ -15,79 +19,102 @@ function fmtDate(d: string): string {
   return `${months[mi] || m} ${y}`;
 }
 
-/**
- * Visual PDF: capture #resume-preview and paginate across A4 pages
- * so long resumes are not scaled into a single page.
- */
+export function paginateVisual(height: number, pageHeight: number, rows: { top: number; bottom: number }[] = []) {
+  if (!Number.isFinite(height) || !Number.isFinite(pageHeight) || height <= 0 || pageHeight < 1) {
+    throw new Error('Invalid resume page dimensions.');
+  }
+  const slices: { top: number; height: number }[] = [];
+  for (let top = 0; top < height;) {
+    const limit = height - (top + pageHeight) < 1 ? height : top + pageHeight;
+    let end = limit;
+    // Move the break above intersecting rows, including rows in the other column.
+    while (end < height) {
+      const crossing = rows.filter(row => row.top < end && row.bottom > end && row.bottom - row.top <= pageHeight);
+      if (!crossing.length) break;
+      const next = Math.floor(Math.min(...crossing.map(row => row.top)));
+      if (next <= top) { end = limit; break; } // An oversized/overlapping row must split.
+      end = next;
+    }
+    slices.push({ top, height: end - top });
+    top = end;
+  }
+  return slices;
+}
+
+/** Render a fresh data snapshot, not a potentially hidden or zoomed UI ancestor. */
 export async function exportVisualPDF(data: ResumeData): Promise<void> {
-  const element = document.getElementById('resume-preview');
-  if (!element) {
-    throw new Error('Resume preview element not found.');
+  const frame = document.createElement('iframe');
+  frame.title = 'Temporary PDF rendering surface';
+  frame.setAttribute('aria-hidden', 'true');
+  frame.style.cssText = 'position:fixed;left:-10000px;top:0;width:794px;height:1123px;border:0;pointer-events:none;';
+  document.body.appendChild(frame);
+  try {
+    const doc = frame.contentDocument;
+    if (!doc) throw new Error('Could not create the PDF rendering surface.');
+    await Promise.all(Array.from(document.querySelectorAll('style, link[rel="stylesheet"]')).map(source => {
+      const copy = source.cloneNode(true) as HTMLStyleElement | HTMLLinkElement;
+      if (copy instanceof HTMLLinkElement) {
+        copy.href = (source as HTMLLinkElement).href;
+        return new Promise<void>((resolve, reject) => {
+          const timer = setTimeout(() => reject(new Error('PDF stylesheet loading timed out.')), 10000);
+          copy.onload = () => { clearTimeout(timer); resolve(); };
+          copy.onerror = () => { clearTimeout(timer); reject(new Error('Could not load PDF styles.')); };
+          doc.head.appendChild(copy);
+        });
+      }
+      doc.head.appendChild(copy);
+      return Promise.resolve();
+    }));
+    doc.body.style.cssText = 'margin:0;background:white;';
+    doc.body.innerHTML = renderToStaticMarkup(createElement(ResumeDocument, { data, id: 'pdf-render' }));
+    const element = doc.getElementById('pdf-render')!;
+    element.style.margin = '0';
+    element.style.boxShadow = 'none';
+    // Trigger layout/font requests before waiting for the fonts actually used.
+    element.getBoundingClientRect();
+    if (doc.fonts) await doc.fonts.ready;
+    const rect = element.getBoundingClientRect();
+    const width = rect.width;
+    const height = rect.height;
+    if (element.scrollWidth > Math.ceil(width) + 1) {
+      throw new Error('Resume content exceeds the page width. Shorten long fields or reduce the font size before exporting.');
+    }
+    const pdf = new jsPDF('p', 'mm', 'a4');
+    const pageWidth = pdf.internal.pageSize.getWidth();
+    const pageHeight = pdf.internal.pageSize.getHeight() * width / pageWidth;
+    const rows = Array.from(element.querySelectorAll('[data-pdf-row], h2, li')).map(row => {
+      const bounds = row.getBoundingClientRect();
+      let bottom = bounds.bottom;
+      if (row.tagName === 'H2') {
+        // Keep a heading with its first entry, including decorated heading wrappers.
+        const section = row.parentElement?.querySelector('[data-pdf-row]') ? row.parentElement : row.parentElement?.parentElement;
+        const firstRow = section?.querySelector('[data-pdf-row]');
+        if (firstRow) bottom = Math.max(bottom, firstRow.getBoundingClientRect().bottom);
+      }
+      return { top: bounds.top - rect.top, bottom: bottom - rect.top };
+    });
+    const slices = paginateVisual(height, pageHeight, rows);
+    // Capture one page at a time: a single tall canvas can exceed browser limits.
+    for (const [index, slice] of slices.entries()) {
+      const canvas = await html2canvas(element, {
+        scale: 2, useCORS: true, allowTaint: false, backgroundColor: '#ffffff', logging: false,
+        width, height: slice.height, y: slice.top, x: 0,
+        windowWidth: Math.ceil(width), windowHeight: 1123, scrollX: 0, scrollY: 0,
+      });
+      if (!canvas.width || !canvas.height) throw new Error('The PDF page could not be rendered.');
+      if (index) pdf.addPage();
+      pdf.addImage(canvas.toDataURL('image/png'), 'PNG', 0, 0, pageWidth, slice.height * pageWidth / width);
+      canvas.width = canvas.height = 0;
+    }
+    pdf.save(`${fileBase(data)}.pdf`);
+  } finally {
+    frame.remove();
   }
+}
 
-  const canvas = await html2canvas(element, {
-    scale: 2,
-    useCORS: true,
-    allowTaint: true,
-    backgroundColor: '#ffffff',
-    logging: false,
-    windowWidth: element.scrollWidth,
-    windowHeight: element.scrollHeight,
-  });
-
-  const pdf = new jsPDF('p', 'mm', 'a4');
-  const pageWidth = pdf.internal.pageSize.getWidth();
-  const pageHeight = pdf.internal.pageSize.getHeight();
-
-  // Full-bleed visual (matches on-screen A4 preview)
-  const imgWidth = pageWidth;
-  const imgHeight = (canvas.height * imgWidth) / canvas.width;
-
-  // Height of one PDF page in canvas pixels
-  const pageHeightPx = (pageHeight * canvas.width) / imgWidth;
-
-  let heightLeft = canvas.height;
-  let srcY = 0;
-  let page = 0;
-
-  while (heightLeft > 0) {
-    const sliceHeight = Math.min(pageHeightPx, heightLeft);
-    const pageCanvas = document.createElement('canvas');
-    pageCanvas.width = canvas.width;
-    pageCanvas.height = Math.ceil(sliceHeight);
-
-    const ctx = pageCanvas.getContext('2d');
-    if (!ctx) throw new Error('Could not create canvas context for PDF page.');
-
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(0, 0, pageCanvas.width, pageCanvas.height);
-    ctx.drawImage(
-      canvas,
-      0,
-      srcY,
-      canvas.width,
-      sliceHeight,
-      0,
-      0,
-      canvas.width,
-      sliceHeight
-    );
-
-    const pageData = pageCanvas.toDataURL('image/png');
-    const sliceImgHeight = (sliceHeight * imgWidth) / canvas.width;
-
-    if (page > 0) pdf.addPage();
-    pdf.addImage(pageData, 'PNG', 0, 0, imgWidth, sliceImgHeight);
-
-    heightLeft -= sliceHeight;
-    srcY += sliceHeight;
-    page += 1;
-
-    // Safety against infinite loops on tiny remainders
-    if (page > 30) break;
-  }
-
-  pdf.save(`${fileBase(data)}.pdf`);
+export function getAtsPDFUnsupportedCharacters(data: ResumeData): string[] {
+  // jsPDF's built-in Helvetica uses WinAnsi, not a Unicode embedded font.
+  return [...new Set(buildTXT(data).match(/[^\t\n\r\x20-\x7e\xa0-\xff\u0152\u0153\u0160\u0161\u0178\u017d\u017e\u0192\u02c6\u02dc\u2013-\u2014\u2018-\u201a\u201c-\u201e\u2020-\u2022\u2026\u2030\u2039\u203a\u20ac]/gu) || [])];
 }
 
 /**
@@ -95,6 +122,10 @@ export async function exportVisualPDF(data: ResumeData): Promise<void> {
  * Prefer this when submitting to applicant tracking systems.
  */
 export function exportAtsPDF(data: ResumeData): void {
+  const unsupported = getAtsPDFUnsupportedCharacters(data);
+  if (unsupported.length) {
+    throw new Error(`ATS PDF cannot encode these characters with its built-in font: ${unsupported.slice(0, 12).join(' ')}. Use DOCX for selectable Unicode text or Visual PDF for appearance.`);
+  }
   const pdf = new jsPDF('p', 'mm', 'a4');
   const pageWidth = pdf.internal.pageSize.getWidth();
   const pageHeight = pdf.internal.pageSize.getHeight();
@@ -115,6 +146,7 @@ export function exportAtsPDF(data: ResumeData): void {
     pdf.setTextColor(color);
     const lines = pdf.splitTextToSize(text, contentWidth) as string[];
     const lineHeight = fontSize * 0.4;
+    if (lines.length * lineHeight <= pageHeight - margin * 2) ensureSpace(lines.length * lineHeight + 1);
     for (const line of lines) {
       ensureSpace(lineHeight + 1);
       pdf.text(line, margin, y);
@@ -123,7 +155,7 @@ export function exportAtsPDF(data: ResumeData): void {
   };
 
   const sectionTitle = (title: string) => {
-    ensureSpace(10);
+    ensureSpace(20);
     y += 3;
     pdf.setFont('helvetica', 'bold');
     pdf.setFontSize(11);
@@ -143,9 +175,11 @@ export function exportAtsPDF(data: ResumeData): void {
   pdf.setFontSize(18);
   pdf.setTextColor('#111111');
   const name = personalInfo.name || 'Your Name';
-  const nameWidth = pdf.getTextWidth(name);
-  pdf.text(name, (pageWidth - nameWidth) / 2, y);
-  y += 7;
+  for (const line of pdf.splitTextToSize(name, contentWidth) as string[]) {
+    ensureSpace(8);
+    pdf.text(line, (pageWidth - pdf.getTextWidth(line)) / 2, y);
+    y += 8;
+  }
 
   // Contact
   const contact = [
@@ -164,6 +198,7 @@ export function exportAtsPDF(data: ResumeData): void {
     pdf.setTextColor('#333333');
     const contactLines = pdf.splitTextToSize(contact, contentWidth) as string[];
     for (const line of contactLines) {
+      ensureSpace(5);
       const w = pdf.getTextWidth(line);
       pdf.text(line, (pageWidth - w) / 2, y);
       y += 4;
@@ -212,6 +247,7 @@ export function exportAtsPDF(data: ResumeData): void {
           if (degreeLine) writeWrapped(degreeLine, 10);
           writeWrapped(`${fmtDate(edu.startDate)} – ${fmtDate(edu.endDate)}`, 9, 'italic', '#444444');
           if (edu.coursework?.trim()) writeWrapped(`Coursework: ${edu.coursework.trim()}`, 9);
+          if (edu.honors?.trim()) writeWrapped(`Honors: ${edu.honors.trim()}`, 9);
           y += 2;
         }
         break;
@@ -254,6 +290,8 @@ export function exportAtsPDF(data: ResumeData): void {
         sectionTitle(section.name);
         for (const cert of sections.certifications) {
           writeWrapped(`${cert.name}${cert.issuer ? ` — ${cert.issuer}` : ''}${cert.date ? ` (${cert.date})` : ''}`, 10);
+          if (cert.expiryDate?.trim()) writeWrapped(`Expires: ${cert.expiryDate.trim()}`, 9);
+          if (cert.credentialId?.trim()) writeWrapped(`Credential ID: ${cert.credentialId.trim()}`, 9);
         }
         y += 2;
         break;

@@ -4,8 +4,8 @@ import { ResumeData } from '../types/resume';
 function esc(text: string): string {
   if (!text) return '';
   return text
-    .replace(/\\/g, '\\textbackslash{}')
-    .replace(/([&%$#_{}~^])/g, (m) => {
+    .replace(/([\\&%$#_{}~^])/g, (m) => {
+      if (m === '\\') return '\\textbackslash{}';
       if (m === '~') return '\\textasciitilde{}';
       if (m === '^') return '\\textasciicircum{}';
       return `\\${m}`;
@@ -26,6 +26,8 @@ export function buildLatex(data: ResumeData): string {
 
   out.push(String.raw`\documentclass[a4paper,10pt]{article}`);
   out.push(String.raw`\usepackage[margin=0.75in]{geometry}`);
+  out.push(String.raw`\usepackage[T1]{fontenc}`);
+  out.push(String.raw`\usepackage[utf8]{inputenc}`);
   out.push(String.raw`\usepackage{enumitem}`);
   out.push(String.raw`\usepackage{titlesec}`);
   out.push(String.raw`\usepackage[hidelinks]{hyperref}`);
@@ -45,7 +47,7 @@ export function buildLatex(data: ResumeData): string {
     personalInfo.github,
     personalInfo.linkedin,
     personalInfo.website,
-  ].filter(Boolean).map(esc).join(' $|$ ');
+  ].filter((s): s is string => Boolean(s)).map(esc).join(' $|$ ');
   if (contact) out.push(`${contact}`);
   out.push(String.raw`\end{center}`);
   out.push('');
@@ -84,6 +86,7 @@ export function buildLatex(data: ResumeData): string {
           out.push(String.raw`\noindent\textbf{${esc(edu.institution)}} \hfill ${esc(edu.startDate)} -- ${esc(edu.endDate)} \\`);
           out.push(`${esc(edu.degree)} in ${esc(edu.field)}${edu.gpa ? ` -- GPA: ${esc(edu.gpa)}` : ''} \\\\`);
           if (edu.coursework) out.push(String.raw`\textit{Coursework: ${esc(edu.coursework)}} \\`);
+          if (edu.honors) out.push(String.raw`\textit{Honors: ${esc(edu.honors)}} \\`);
           out.push('');
         }
         break;
@@ -92,7 +95,7 @@ export function buildLatex(data: ResumeData): string {
         if (sections.skills.length === 0) break;
         out.push(sectionHeading(section.name));
         for (const s of sections.skills) {
-          if (s.category && s.skills) out.push(String.raw`\textbf{${esc(s.category)}:} ${esc(s.skills)} \\`);
+          if (s.skills.trim()) out.push(`${s.category.trim() ? `\\textbf{${esc(s.category)}:} ` : ''}${esc(s.skills)} \\\\`);
         }
         out.push('');
         break;
@@ -104,6 +107,7 @@ export function buildLatex(data: ResumeData): string {
           out.push(String.raw`\noindent\textbf{${esc(proj.title)}}${proj.year ? ` (${esc(proj.year)})` : ''} \\`);
           if (proj.description) out.push(`${esc(proj.description)} \\\\`);
           if (proj.technologies) out.push(String.raw`\textit{Technologies: ${esc(proj.technologies)}} \\`);
+          if (proj.url) out.push(String.raw`URL: ${esc(proj.url)} \\`);
           out.push('');
         }
         break;
@@ -113,7 +117,7 @@ export function buildLatex(data: ResumeData): string {
         out.push(sectionHeading(section.name));
         out.push(String.raw`\begin{itemize}[nosep,leftmargin=1.5em]`);
         for (const aw of sections.awards) {
-          out.push(`\\item \\textbf{${esc(aw.title)}}${aw.description ? ` -- ${esc(aw.description)}` : ''}`);
+          out.push(`\\item \\textbf{${esc(aw.title)}}${aw.issuer ? ` -- ${esc(aw.issuer)}` : ''}${aw.date ? ` (${esc(aw.date)})` : ''}${aw.description ? ` -- ${esc(aw.description)}` : ''}`);
         }
         out.push(String.raw`\end{itemize}`);
         out.push('');
@@ -125,6 +129,8 @@ export function buildLatex(data: ResumeData): string {
         out.push(String.raw`\begin{itemize}[nosep,leftmargin=1.5em]`);
         for (const cert of sections.certifications) {
           out.push(`\\item \\textbf{${esc(cert.name)}} -- ${esc(cert.issuer)}${cert.date ? ` (${esc(cert.date)})` : ''}`);
+          if (cert.expiryDate) out.push(`Expires: ${esc(cert.expiryDate)}`);
+          if (cert.credentialId) out.push(`Credential ID: ${esc(cert.credentialId)}`);
         }
         out.push(String.raw`\end{itemize}`);
         out.push('');

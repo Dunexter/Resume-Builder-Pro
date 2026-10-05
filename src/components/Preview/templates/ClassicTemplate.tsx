@@ -1,6 +1,7 @@
 import React from 'react';
 import { ResumeData } from '../../../types/resume';
 import { fmtDate } from '../shared/fmtDate';
+import { EducationDetails, CertificationDetails } from '../shared/EntryDetails';
 
 const ClassicTemplate: React.FC<{ data: ResumeData }> = ({ data }) => {
   const { personalInfo, sections, sectionOrder, styling } = data;
@@ -30,7 +31,7 @@ const ClassicTemplate: React.FC<{ data: ResumeData }> = ({ data }) => {
       {sectionOrder.filter(s => s.visible).map(section => {
         const heading = (
           <div key={`h-${section.id}`} style={{ borderTop: '2px solid #000', borderBottom: '1px solid #000', padding: '2px 0', marginBottom: 6 }}>
-            <strong style={{ fontSize: `${fs * 0.9}pt`, textTransform: 'uppercase', letterSpacing: '0.1em' }}>{section.name}</strong>
+            <strong style={{ fontSize: `${fs * 0.9}pt`, textTransform: 'uppercase', letterSpacing: '0.1em' }}>{section.type === 'custom' ? sections.custom.find(c => c.id === section.id)?.name : section.name}</strong>
           </div>
         );
 
@@ -40,8 +41,8 @@ const ClassicTemplate: React.FC<{ data: ResumeData }> = ({ data }) => {
               <div key={section.id} style={{ marginBottom: 10 }}>
                 {heading}
                 {sections.skills.map(s => (
-                  <div key={s.id} style={{ marginBottom: 2 }}>
-                    <strong>{s.category}: </strong>{s.skills}
+                  <div key={s.id} data-pdf-row style={{ marginBottom: 2 }}>
+                    {s.category.trim() && <strong>{s.category}: </strong>}{s.skills}
                   </div>
                 ))}
               </div>
@@ -51,7 +52,7 @@ const ClassicTemplate: React.FC<{ data: ResumeData }> = ({ data }) => {
               <div key={section.id} style={{ marginBottom: 10 }}>
                 {heading}
                 {sections.experience.map(exp => (
-                  <div key={exp.id} style={{ marginBottom: 8 }}>
+                  <div key={exp.id} data-pdf-row style={{ marginBottom: 8 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                       <div><strong>{exp.company}</strong>, <em>{exp.position}</em>{exp.location ? `, ${exp.location}` : ''}</div>
                       <div style={{ flexShrink: 0 }}>{fmtDate(exp.startDate)} – {exp.current ? 'Present' : fmtDate(exp.endDate)}</div>
@@ -69,12 +70,13 @@ const ClassicTemplate: React.FC<{ data: ResumeData }> = ({ data }) => {
               <div key={section.id} style={{ marginBottom: 10 }}>
                 {heading}
                 {sections.education.map(edu => (
-                  <div key={edu.id} style={{ marginBottom: 5 }}>
+                  <div key={edu.id} data-pdf-row style={{ marginBottom: 5 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                       <div><strong>{edu.institution}</strong> — {edu.degree} in {edu.field}{edu.gpa ? `, GPA: ${edu.gpa}` : ''}</div>
                       <div style={{ flexShrink: 0 }}>{fmtDate(edu.startDate)} – {fmtDate(edu.endDate)}</div>
                     </div>
                     {edu.coursework && <div><em>Coursework:</em> {edu.coursework}</div>}
+                    <EducationDetails entry={edu} />
                   </div>
                 ))}
               </div>
@@ -84,13 +86,14 @@ const ClassicTemplate: React.FC<{ data: ResumeData }> = ({ data }) => {
               <div key={section.id} style={{ marginBottom: 10 }}>
                 {heading}
                 {sections.projects.map(proj => (
-                  <div key={proj.id} style={{ marginBottom: 5 }}>
+                  <div key={proj.id} data-pdf-row style={{ marginBottom: 5 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                       <strong>{proj.title}</strong>
                       {proj.year && <span>{proj.year}</span>}
                     </div>
                     {proj.description && <div>{proj.description}</div>}
                     {proj.technologies && <div><em>Technologies:</em> {proj.technologies}</div>}
+                    {proj.url && <div>{proj.url}</div>}
                   </div>
                 ))}
               </div>
@@ -100,7 +103,7 @@ const ClassicTemplate: React.FC<{ data: ResumeData }> = ({ data }) => {
               <div key={section.id} style={{ marginBottom: 10 }}>
                 {heading}
                 {sections.awards.map(aw => (
-                  <div key={aw.id} style={{ marginBottom: 3 }}>
+                  <div key={aw.id} data-pdf-row style={{ marginBottom: 3 }}>
                     <strong>{aw.title}</strong>{aw.issuer ? ` — ${aw.issuer}` : ''}{aw.date ? ` (${aw.date})` : ''}
                     {aw.description && <div style={{ paddingLeft: 8 }}>{aw.description}</div>}
                   </div>
@@ -112,8 +115,8 @@ const ClassicTemplate: React.FC<{ data: ResumeData }> = ({ data }) => {
               <div key={section.id} style={{ marginBottom: 10 }}>
                 {heading}
                 {sections.certifications.map(cert => (
-                  <div key={cert.id} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3 }}>
-                    <div><strong>{cert.name}</strong>{cert.issuer ? ` — ${cert.issuer}` : ''}</div>
+                  <div key={cert.id} data-pdf-row style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3 }}>
+                    <div><strong>{cert.name}</strong>{cert.issuer ? ` — ${cert.issuer}` : ''}<CertificationDetails entry={cert} /></div>
                     {cert.date && <span>{cert.date}</span>}
                   </div>
                 ))}
@@ -125,7 +128,7 @@ const ClassicTemplate: React.FC<{ data: ResumeData }> = ({ data }) => {
               <div key={section.id} style={{ marginBottom: 10 }}>
                 {heading}
                 {cs.entries.map(e => (
-                  <div key={e.id} style={{ marginBottom: 4 }}>
+                  <div key={e.id} data-pdf-row style={{ marginBottom: 4 }}>
                     {e.title && <strong>{e.title}: </strong>}
                     {e.content && <span>{e.content}</span>}
                   </div>

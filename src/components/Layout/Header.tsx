@@ -1,11 +1,11 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
-  FileText, Download, Save, Clock, Moon, Sun, Layers,
-  ChevronDown, FileCode, AlignLeft, Sparkles, History, Undo2, Redo2, Menu, Bot
+  FileText, Download, Save, Moon, Sun, Layers, ChevronDown,
+  FileCode, AlignLeft, Sparkles, History, Undo2, Redo2, Menu, Bot,
 } from 'lucide-react';
 import { useAppSelector, useAppDispatch } from '../../hooks';
-import { toggleDarkMode, setLastSaved, setShowTemplateGallery, setShowCoverLetterBuilder, setShowJobFinderBot, undo, redo } from '../../store/resumeSlice';
-import { saveResume, loadResume } from '../../db/resumeDB';
+import { toggleDarkMode, setShowTemplateGallery, setShowCoverLetterBuilder, setShowJobFinderBot, undo, redo } from '../../store/resumeSlice';
+import { flushEditor } from '../../utils/editorPersistence';
 import { validateResumeForExport, formatValidationMessage } from '../../utils/validationUtils';
 
 interface HeaderProps {
@@ -14,297 +14,157 @@ interface HeaderProps {
   onToggleMobileSidebar?: () => void;
 }
 
+type ExportFormat = 'ats' | 'visual' | 'docx' | 'txt' | 'markdown' | 'latex';
+
 const Header: React.FC<HeaderProps> = ({ onOpenResumeManager, onOpenVersions, onToggleMobileSidebar }) => {
   const dispatch = useAppDispatch();
-  const lastSaved = useAppSelector(state => state.resume.lastSaved);
-  const darkMode = useAppSelector(state => state.resume.settings.darkMode);
-  const resumeData = useAppSelector(state => state.resume.data);
-  const activeResumeId = useAppSelector(state => state.resume.activeResumeId);
-  const canUndo = useAppSelector(state => state.resume.history.past.length > 0);
-  const canRedo = useAppSelector(state => state.resume.history.future.length > 0);
+  const { lastSaved, hydrated, saveStatus, saveError, settings, data: resumeData, activeResumeId, resumeList, history } = useAppSelector(state => state.resume);
+  const darkMode = settings.darkMode;
+  const documentName = resumeList.find(record => record.id === activeResumeId)?.name || 'My Resume';
   const [exportOpen, setExportOpen] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
-  const [isExporting, setIsExporting] = useState(false);
+  const [busy, setBusy] = useState<'save' | 'export' | 'transition' | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const busyRef = useRef(false);
+  const exportButton = useRef<HTMLButtonElement>(null);
+  const exportPanel = useRef<HTMLDivElement>(null);
+  const disabled = !hydrated || busy !== null;
 
-  const formatLastSaved = (ts: string | null) => {
-    if (!ts) return 'Not saved';
-    const d = new Date(ts);
-    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  useEffect(() => {
+    if (!exportOpen) return;
+    exportPanel.current?.querySelector('button')?.focus();
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        setExportOpen(false);
+        exportButton.current?.focus();
+      }
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [exportOpen]);
+
+  const saveOrOpen = async (afterSave?: () => void) => {
+    if (!hydrated || busyRef.current) return;
+    busyRef.current = true;
+    setBusy(afterSave ? 'transition' : 'save');
+    setError(null);
+    try {
+      await flushEditor();
+      afterSave?.();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not save your resume. Please retry.');
+    } finally {
+      busyRef.current = false;
+      setBusy(null);
+    }
   };
 
-  /** Returns false if export should abort. */
-  const ensureExportAllowed = (): boolean => {
+  const handleExport = async (format: ExportFormat) => {
+    if (!hydrated || busyRef.current) return;
+    setExportOpen(false);
+    exportButton.current?.focus();
+    setError(null);
+    // Validate every format before entering the busy state, including cancelled warnings.
     const issues = validateResumeForExport(resumeData);
-    const errors = issues.filter(i => i.level === 'error');
-    const warns = issues.filter(i => i.level === 'warn');
-
-    if (errors.length) {
-      alert(formatValidationMessage(issues));
-      return false;
+    if (issues.some(issue => issue.level === 'error')) {
+      setError(formatValidationMessage(issues));
+      return;
     }
-    if (warns.length) {
-      const ok = window.confirm(
-        formatValidationMessage(issues) + '\n\nExport anyway?'
-      );
-      return ok;
-    }
-    return true;
-  };
+    if (issues.some(issue => issue.level === 'warn') &&
+      !window.confirm(`${formatValidationMessage(issues)}\n\nExport anyway?`)) return;
 
-  const handleManualSave = async () => {
-    setIsSaving(true);
+    busyRef.current = true;
+    setBusy('export');
     try {
-      const now = new Date().toISOString();
-      const existing = await loadResume(activeResumeId);
-      await saveResume({
-        id: activeResumeId,
-        name: resumeData.personalInfo.name || 'My Resume',
-        createdAt: existing?.createdAt || now,
-        updatedAt: now,
-        data: resumeData,
-        versions: existing?.versions || [],
-      });
-      dispatch(setLastSaved(now));
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-  const handleExportVisualPDF = async () => {
-    setIsExporting(true);
-    setExportOpen(false);
-    if (!ensureExportAllowed()) return;
-    setIsExporting(true);
-    try {
-      const { exportVisualPDF } = await import('../../utils/pdfExport');
-      await exportVisualPDF(resumeData);
+      // Downloads must remain available to rescue in-memory edits when storage fails.
+      switch (format) {
+        case 'ats':
+          await (await import('../../utils/pdfExport')).exportAtsPDF(resumeData);
+          break;
+        case 'visual':
+          await (await import('../../utils/pdfExport')).exportVisualPDF(resumeData);
+          break;
+        case 'docx':
+          await (await import('../../utils/exportUtils')).exportDOCX(resumeData);
+          break;
+        case 'txt':
+          await (await import('../../utils/exportUtils')).exportTXT(resumeData);
+          break;
+        case 'markdown':
+          await (await import('../../utils/markdownExport')).exportMarkdown(resumeData);
+          break;
+        case 'latex':
+          await (await import('../../utils/latexExport')).exportLatex(resumeData);
+          break;
+      }
     } catch (err) {
-      console.error('Visual PDF export failed:', err);
-      alert(err instanceof Error ? err.message : 'PDF export failed.');
+      setError(err instanceof Error ? err.message : 'Export failed. Please try again.');
     } finally {
-      setIsExporting(false);
+      busyRef.current = false;
+      setBusy(null);
     }
-  };
-
-  const handleExportAtsPDF = async () => {
-    setExportOpen(false);
-    setIsExporting(true);
-    try {
-      const { exportAtsPDF } = await import('../../utils/pdfExport');
-      exportAtsPDF(resumeData);
-    } catch (err) {
-      console.error('ATS PDF export failed:', err);
-      alert(err instanceof Error ? err.message : 'ATS PDF export failed.');
-    } finally {
-      setIsExporting(false);
-    }
-  };
-
-  const handleExportDOCX = async () => {
-    setExportOpen(false);
-    if (!ensureExportAllowed()) return;
-    setIsExporting(true);
-    try {
-      const { exportDOCX } = await import('../../utils/exportUtils');
-      await exportDOCX(resumeData);
-    } finally {
-      setIsExporting(false);
-    }
-  };
-
-  const handleExportTXT = async () => {
-    setExportOpen(false);
-    if (!ensureExportAllowed()) return;
-    const { exportTXT } = await import('../../utils/exportUtils');
-    exportTXT(resumeData);
-  };
-
-  const handleExportMarkdown = async () => {
-    setExportOpen(false);
-    if (!ensureExportAllowed()) return;
-    const { exportMarkdown } = await import('../../utils/markdownExport');
-    exportMarkdown(resumeData);
-  };
-
-  const handleExportLatex = async () => {
-    setExportOpen(false);
-    if (!ensureExportAllowed()) return;
-    const { exportLatex } = await import('../../utils/latexExport');
-    exportLatex(resumeData);
   };
 
   const base = darkMode ? 'bg-gray-900 border-gray-700 text-white' : 'bg-white border-gray-200 text-gray-900';
-  const btnBase = darkMode ? 'bg-gray-800 hover:bg-gray-700 text-gray-200' : 'bg-gray-100 hover:bg-gray-200 text-gray-700';
-  const menuItem = `w-full flex items-center gap-3 px-4 py-3 text-sm transition-colors ${darkMode ? 'hover:bg-gray-700 text-gray-200' : 'hover:bg-gray-50 text-gray-700'}`;
+  const btnBase = `disabled:opacity-40 disabled:cursor-not-allowed ${darkMode ? 'bg-gray-800 hover:bg-gray-700 text-gray-200' : 'bg-gray-100 hover:bg-gray-200 text-gray-700'}`;
+  const toolClass = `flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${btnBase}`;
+  const menuItem = `w-full flex items-center gap-3 px-4 py-3 text-sm text-left transition-colors ${darkMode ? 'hover:bg-gray-700 text-gray-200' : 'hover:bg-gray-50 text-gray-700'}`;
+  const statusText = !hydrated ? 'Loading...' : busy === 'save' || saveStatus === 'saving' ? 'Saving...' :
+    saveStatus === 'error' ? 'Save failed' : saveStatus === 'dirty' ? 'Unsaved changes' :
+      lastSaved ? `Saved at ${new Date(lastSaved).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : 'Saved';
 
   return (
-    <header className={`app-chrome border-b px-4 py-3 flex-shrink-0 z-20 ${base}`}>
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <button
-            onClick={onToggleMobileSidebar}
-            className={`p-2 rounded-lg transition-colors md:hidden ${btnBase}`}
-            title="Toggle menu"
-            aria-label="Toggle menu"
-          >
+    <header className={`app-chrome min-w-0 max-w-full border-b px-4 py-3 flex-shrink-0 z-20 ${base}`}>
+      <div className="flex min-w-0 flex-wrap items-center justify-between gap-3">
+        <div className="flex min-w-0 max-w-full items-center gap-2">
+          {onToggleMobileSidebar && <button onClick={onToggleMobileSidebar} className={`p-2 rounded-lg md:hidden ${btnBase}`} aria-label="Toggle menu">
             <Menu className="h-5 w-5" />
-          </button>
-          <div className="flex items-center gap-2">
-            <div className="bg-indigo-600 p-1.5 rounded-lg">
-              <FileText className="h-5 w-5 text-white" />
-            </div>
-            <div>
-              <h1 className="text-lg font-bold leading-tight">ResumeBuilder Pro</h1>
-              <p className="text-xs text-gray-400 leading-tight">Free · ATS-Optimized · No Paywall</p>
-            </div>
-          </div>
-
-          <div className="hidden md:flex items-center gap-1 ml-4">
-            <button
-              onClick={onOpenResumeManager}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${btnBase}`}
-            >
-              <Layers className="h-3.5 w-3.5" />
-              My Resumes
-            </button>
-            <button
-              onClick={onOpenVersions}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${btnBase}`}
-            >
-              <History className="h-3.5 w-3.5" />
-              Versions
-            </button>
-            <button
-              onClick={() => dispatch(setShowTemplateGallery(true))}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${btnBase}`}
-            >
-              <Sparkles className="h-3.5 w-3.5" />
-              Templates
-            </button>
-            <button
-              onClick={() => dispatch(setShowCoverLetterBuilder(true))}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${btnBase}`}
-            >
-              <AlignLeft className="h-3.5 w-3.5" />
-              Cover Letter
-            </button>
-            <button
-              onClick={() => dispatch(setShowJobFinderBot(true))}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${btnBase}`}
-            >
-              <Bot className="h-3.5 w-3.5" />
-              Find Jobs
-            </button>
+          </button>}
+          <FileText className="h-7 w-7 shrink-0 text-indigo-500" />
+          <div className="min-w-0">
+            <h1 className="text-lg font-bold leading-tight">ResumeBuilder Pro</h1>
+            <p className="truncate text-sm" title={documentName} aria-label="Document name">{documentName}</p>
           </div>
         </div>
-
-        <div className="flex items-center gap-2">
-          <div className="hidden sm:flex items-center gap-1.5 text-xs text-gray-400">
-            <Clock className="h-3.5 w-3.5" />
-            <span>{formatLastSaved(lastSaved)}</span>
-          </div>
-
-          <button
-            onClick={() => dispatch(toggleDarkMode())}
-            className={`p-2 rounded-lg transition-colors ${btnBase}`}
-            title="Toggle dark mode"
-          >
+        <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2">
+          <button onClick={() => dispatch(toggleDarkMode())} disabled={disabled} className={`p-2 rounded-lg ${btnBase}`} aria-label={darkMode ? 'Switch to light mode' : 'Switch to dark mode'}>
             {darkMode ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
           </button>
-
-          <div className={`flex items-center rounded-lg overflow-hidden border ${darkMode ? 'border-gray-700' : 'border-gray-200'}`}>
-            <button
-              onClick={() => dispatch(undo())}
-              disabled={!canUndo}
-              title="Undo"
-              aria-label="Undo"
-              className={`p-2 transition-colors disabled:opacity-30 disabled:cursor-not-allowed ${btnBase}`}
-            >
-              <Undo2 className="h-4 w-4" />
-            </button>
-            <button
-              onClick={() => dispatch(redo())}
-              disabled={!canRedo}
-              title="Redo"
-              aria-label="Redo"
-              className={`p-2 transition-colors disabled:opacity-30 disabled:cursor-not-allowed ${btnBase}`}
-            >
-              <Redo2 className="h-4 w-4" />
-            </button>
-          </div>
-
-          <button
-            onClick={handleManualSave}
-            disabled={isSaving}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${btnBase}`}
-          >
-            <Save className="h-3.5 w-3.5" />
-            {isSaving ? 'Saving...' : 'Save'}
+          <button onClick={() => dispatch(undo())} disabled={disabled || !history.past.length} aria-label="Undo" className={`p-2 rounded-lg ${btnBase}`}><Undo2 className="h-4 w-4" /></button>
+          <button onClick={() => dispatch(redo())} disabled={disabled || !history.future.length} aria-label="Redo" className={`p-2 rounded-lg ${btnBase}`}><Redo2 className="h-4 w-4" /></button>
+          <button onClick={() => void saveOrOpen()} disabled={disabled} className={toolClass}>
+            <Save className="h-3.5 w-3.5" />{busy === 'save' ? 'Saving...' : saveStatus === 'error' ? 'Retry save' : 'Save'}
           </button>
-
           <div className="relative">
-            <button
-              onClick={() => setExportOpen(o => !o)}
-              disabled={isExporting}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-medium transition-colors"
-            >
-              <Download className="h-3.5 w-3.5" />
-              {isExporting ? 'Exporting...' : 'Export'}
-              <ChevronDown className="h-3 w-3" />
+            <button ref={exportButton} onClick={() => setExportOpen(open => !open)} disabled={disabled}
+              aria-expanded={exportOpen} aria-controls="resume-export-options"
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-medium disabled:opacity-40">
+              <Download className="h-3.5 w-3.5" />{busy === 'export' ? 'Exporting...' : 'Export'}<ChevronDown className="h-3 w-3" />
             </button>
-
-            {exportOpen && (
-              <>
-                <div className="fixed inset-0 z-10" onClick={() => setExportOpen(false)} />
-                <div className={`absolute right-0 mt-2 w-56 rounded-xl shadow-xl border z-20 overflow-hidden ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
-                  <button onClick={handleExportAtsPDF} className={menuItem}>
-                    <FileText className="h-4 w-4 text-red-500 flex-shrink-0" />
-                    <div className="text-left">
-                      <div className="font-medium">PDF (ATS)</div>
-                      <div className="text-xs text-gray-400">Selectable text · best for applying</div>
-                    </div>
-                  </button>
-                  <button onClick={handleExportVisualPDF} className={menuItem}>
-                    <FileText className="h-4 w-4 text-orange-500 flex-shrink-0" />
-                    <div className="text-left">
-                      <div className="font-medium">PDF (Visual)</div>
-                      <div className="text-xs text-gray-400">Looks like preview · multi-page</div>
-                    </div>
-                  </button>
-                  <button onClick={handleExportDOCX} className={menuItem}>
-                    <FileCode className="h-4 w-4 text-blue-500 flex-shrink-0" />
-                    <div className="text-left">
-                      <div className="font-medium">Word (.docx)</div>
-                      <div className="text-xs text-gray-400">Editable format</div>
-                    </div>
-                  </button>
-                  <button onClick={handleExportTXT} className={menuItem}>
-                    <AlignLeft className="h-4 w-4 text-gray-500 flex-shrink-0" />
-                    <div className="text-left">
-                      <div className="font-medium">Plain Text</div>
-                      <div className="text-xs text-gray-400">ATS safe, no formatting</div>
-                    </div>
-                  </button>
-                  <button onClick={handleExportMarkdown} className={menuItem}>
-                    <FileCode className="h-4 w-4 text-purple-500 flex-shrink-0" />
-                    <div className="text-left">
-                      <div className="font-medium">Markdown (.md)</div>
-                      <div className="text-xs text-gray-400">GitHub / Notion friendly</div>
-                    </div>
-                  </button>
-                  <button onClick={handleExportLatex} className={menuItem}>
-                    <FileCode className="h-4 w-4 text-teal-500 flex-shrink-0" />
-                    <div className="text-left">
-                      <div className="font-medium">LaTeX (.tex)</div>
-                      <div className="text-xs text-gray-400">Compile in Overleaf/TeX Live</div>
-                    </div>
-                  </button>
-                </div>
-              </>
-            )}
+            {exportOpen && <>
+              <div className="fixed inset-0 z-10" aria-hidden="true" onClick={() => setExportOpen(false)} />
+              <div ref={exportPanel} id="resume-export-options" role="group" aria-label="Export formats"
+                className={`fixed left-4 right-4 mt-2 max-h-[60vh] overflow-y-auto rounded-xl shadow-xl border z-20 sm:absolute sm:left-auto sm:right-0 sm:w-56 ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
+                <button onClick={() => void handleExport('ats')} className={menuItem}><FileText className="h-4 w-4 text-red-500" />PDF (ATS)</button>
+                <button onClick={() => void handleExport('visual')} className={menuItem}><FileText className="h-4 w-4 text-orange-500" />PDF (Visual)</button>
+                <button onClick={() => void handleExport('docx')} className={menuItem}><FileCode className="h-4 w-4 text-blue-500" />Word (.docx)</button>
+                <button onClick={() => void handleExport('txt')} className={menuItem}><AlignLeft className="h-4 w-4" />Plain Text</button>
+                <button onClick={() => void handleExport('markdown')} className={menuItem}><FileCode className="h-4 w-4 text-purple-500" />Markdown (.md)</button>
+                <button onClick={() => void handleExport('latex')} className={menuItem}><FileCode className="h-4 w-4 text-teal-500" />LaTeX (.tex)</button>
+              </div>
+            </>}
           </div>
         </div>
       </div>
+      <nav aria-label="Resume tools" className="mt-3 flex min-w-0 max-w-full flex-wrap items-center gap-2">
+        <button disabled={disabled} onClick={() => void saveOrOpen(onOpenResumeManager)} className={toolClass}><Layers className="h-3.5 w-3.5" />My Resumes</button>
+        <button disabled={disabled} onClick={() => void saveOrOpen(onOpenVersions)} className={toolClass}><History className="h-3.5 w-3.5" />Versions</button>
+        <button disabled={disabled} onClick={() => void saveOrOpen(() => dispatch(setShowTemplateGallery(true)))} className={toolClass}><Sparkles className="h-3.5 w-3.5" />Templates</button>
+        <button disabled={disabled} onClick={() => void saveOrOpen(() => dispatch(setShowCoverLetterBuilder(true)))} className={toolClass}><AlignLeft className="h-3.5 w-3.5" />Cover Letter</button>
+        <button disabled={disabled} onClick={() => void saveOrOpen(() => dispatch(setShowJobFinderBot(true)))} className={toolClass}><Bot className="h-3.5 w-3.5" />Find Jobs</button>
+        <span role="status" className="text-xs text-gray-500">{statusText}</span>
+      </nav>
+      {(error || saveError) && <p role="alert" className="mt-2 break-words whitespace-pre-line text-sm text-red-500">{error || saveError}</p>}
     </header>
   );
 };

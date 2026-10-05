@@ -32,7 +32,7 @@ const OPENAI_INCLUDE_RE = /^(gpt-|o1|o3|o4|chatgpt)/i;
  * on failure — callers should fall back to a static preset list in that case.
  */
 export async function listModels(aiSettings: AISettingsLike): Promise<ModelOption[]> {
-  if (!aiSettings.apiKey) {
+  if (!aiSettings.apiKey.trim()) {
     throw new AIServiceError('No API key configured.', 'no_key');
   }
 
@@ -59,7 +59,8 @@ export async function listModels(aiSettings: AISettingsLike): Promise<ModelOptio
     let res: Response;
     try {
       res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(aiSettings.apiKey)}`
+        'https://generativelanguage.googleapis.com/v1beta/models',
+        { headers: { 'x-goog-api-key': aiSettings.apiKey } }
       );
     } catch {
       throw new AIServiceError('Network error — could not reach Gemini.', 'network');
@@ -80,7 +81,7 @@ export async function listModels(aiSettings: AISettingsLike): Promise<ModelOptio
       .sort((a, b) => a.value.localeCompare(b.value));
   }
 
-  return [];
+  throw new AIServiceError('Unsupported AI provider.', 'unknown');
 }
 
 /**
@@ -93,7 +94,7 @@ export async function callAIChat(
   aiSettings: AISettingsLike,
   maxTokens = 500
 ): Promise<string> {
-  if (aiSettings.provider === 'none' || !aiSettings.apiKey) {
+  if (aiSettings.provider === 'none' || !aiSettings.apiKey.trim()) {
     throw new AIServiceError('No AI provider configured. Add an API key in AI Settings.', 'no_key');
   }
 
@@ -106,8 +107,7 @@ export async function callAIChat(
         body: JSON.stringify({
           model: aiSettings.model || DEFAULT_OPENAI_MODEL,
           messages,
-          max_tokens: maxTokens,
-          temperature: 0.7,
+          max_completion_tokens: maxTokens,
         }),
       });
     } catch {
@@ -115,29 +115,32 @@ export async function callAIChat(
     }
     if (!res.ok) throw await mapFetchError(res);
     const json = await res.json();
-    const text = json.choices?.[0]?.message?.content?.trim();
+    if (json.choices?.[0]?.finish_reason === 'length') throw new AIServiceError('OpenAI response was truncated. Try a shorter request or another model.', 'unknown');
+    const content = json.choices?.[0]?.message?.content;
+    const text = typeof content === 'string' ? content.trim() : '';
     if (!text) throw new AIServiceError('OpenAI returned an empty response.', 'unknown');
     return text;
   }
 
   if (aiSettings.provider === 'gemini') {
     const model = aiSettings.model || DEFAULT_GEMINI_MODEL;
-    // Gemini has no "system" role — fold system messages into the start of the first turn.
     const systemParts = messages.filter(m => m.role === 'system').map(m => m.content);
     const turns = messages.filter(m => m.role !== 'system');
-    const contents = turns.map((m, i) => ({
+    const contents = turns.map(m => ({
       role: m.role === 'assistant' ? 'model' : 'user',
-      parts: [{ text: i === 0 && systemParts.length ? `${systemParts.join('\n')}\n\n${m.content}` : m.content }],
+      parts: [{ text: m.content }],
     }));
 
     let res: Response;
     try {
       res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(aiSettings.apiKey)}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
         {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ contents }),
+          headers: { 'Content-Type': 'application/json', 'x-goog-api-key': aiSettings.apiKey },
+          body: JSON.stringify({ contents, generationConfig: { maxOutputTokens: maxTokens },
+            ...(systemParts.length ? { systemInstruction: { parts: [{ text: systemParts.join('\n') }] } } : {}),
+          }),
         }
       );
     } catch {
@@ -145,7 +148,10 @@ export async function callAIChat(
     }
     if (!res.ok) throw await mapFetchError(res);
     const json = await res.json();
-    const text = json.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+    if (json.candidates?.[0]?.finishReason === 'MAX_TOKENS') throw new AIServiceError('Gemini response was truncated. Try a shorter request or another model.', 'unknown');
+    const text = json.candidates?.[0]?.content?.parts
+      ?.filter((part: { text?: unknown; thought?: boolean }) => typeof part.text === 'string' && !part.thought)
+      .map((part: { text: string }) => part.text).join('').trim();
     if (!text) throw new AIServiceError('Gemini returned an empty response.', 'unknown');
     return text;
   }

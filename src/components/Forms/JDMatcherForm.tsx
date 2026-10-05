@@ -1,44 +1,30 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Target, Plus, CheckCircle, XCircle, AlertCircle } from 'lucide-react';
 import { useAppSelector, useAppDispatch } from '../../hooks';
 import { setJobDescription, setJDMatchResult, insertMissingKeyword } from '../../store/resumeSlice';
 import { matchJobDescriptionWithSynonyms } from '../../utils/jdMatch';
+import { ResumeData } from '../../types/resume';
 
 const JDMatcherForm: React.FC = () => {
   const dispatch = useAppDispatch();
   const jobDescription = useAppSelector(state => state.resume.jobDescription);
-  const jdMatchResult = useAppSelector(state => state.resume.jdMatchResult);
-  const resumeData = useAppSelector(state => state.resume.data);
+  const resumeData: ResumeData = useAppSelector(state => state.resume.data);
+  const resumeId = useAppSelector(state => state.resume.activeResumeId);
   const darkMode = useAppSelector(state => state.resume.settings.darkMode);
+  const [analyzedResume, setAnalyzedResume] = useState<string | null>(null);
+  // Store results have no source identity. Display only a locally requested, current computation.
+  const jdMatchResult = analyzedResume === resumeId && jobDescription.trim()
+    ? matchJobDescriptionWithSynonyms(resumeData, jobDescription) : null;
 
   const runMatch = () => {
     const result = matchJobDescriptionWithSynonyms(resumeData, jobDescription);
     dispatch(setJDMatchResult(result));
+    setAnalyzedResume(resumeId);
   };
 
   const addKeyword = (kw: string) => {
+    if (resumeData.sections.skills.some(s => s.skills.split(',').some(value => value.trim().toLowerCase() === kw.toLowerCase()))) return;
     dispatch(insertMissingKeyword(kw));
-    // Re-run match after a tick so store updates
-    setTimeout(() => {
-      const result = matchJobDescriptionWithSynonyms(
-        // use latest from window not available — re-match from current + kw heuristically
-        {
-          ...resumeData,
-          sections: {
-            ...resumeData.sections,
-            skills: resumeData.sections.skills.length
-              ? resumeData.sections.skills.map((s, i, arr) =>
-                  i === arr.length - 1
-                    ? { ...s, skills: s.skills ? `${s.skills}, ${kw}` : kw }
-                    : s
-                )
-              : [{ id: 'tmp', category: 'Additional Skills', skills: kw }],
-          },
-        },
-        jobDescription
-      );
-      dispatch(setJDMatchResult(result));
-    }, 0);
   };
 
   const scoreColor =
@@ -61,10 +47,11 @@ const JDMatcherForm: React.FC = () => {
         <h2 className={`text-lg font-bold ${darkMode ? 'text-white' : 'text-gray-900'}`}>Job Description Match</h2>
       </div>
       <p className={`text-xs ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-        Paste a JD to score keyword overlap (with skill synonyms, e.g. k8s ↔ kubernetes).
+        Estimate keyword overlap in visible resume content, not hiring probability or an employer's ATS score. Results update with your edits.
       </p>
 
       <textarea
+        aria-label="Job description"
         className={inputCls}
         rows={8}
         value={jobDescription}
@@ -84,7 +71,7 @@ const JDMatcherForm: React.FC = () => {
       {jdMatchResult && (
         <div className={`rounded-xl border p-4 space-y-3 ${darkMode ? 'border-gray-700 bg-gray-800' : 'border-gray-200 bg-gray-50'}`}>
           <div className="flex items-center justify-between">
-            <span className={`text-sm font-medium ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>Match score</span>
+            <span className={`text-sm font-medium ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>Keyword overlap ({jdMatchResult.matchedKeywords.length}/{jdMatchResult.matchedKeywords.length + jdMatchResult.missingKeywords.length})</span>
             <span className={`text-2xl font-bold ${scoreColor}`}>{jdMatchResult.score}%</span>
           </div>
 
@@ -113,15 +100,18 @@ const JDMatcherForm: React.FC = () => {
           {jdMatchResult.missingKeywords.length > 0 && (
             <div>
               <div className={`text-xs font-semibold mb-1.5 flex items-center gap-1 ${darkMode ? 'text-red-400' : 'text-red-700'}`}>
-                <XCircle className="h-3.5 w-3.5" /> Missing — click to add to Skills
+                <XCircle className="h-3.5 w-3.5" /> Missing terms: add only skills you actually have
               </div>
+              {!resumeData.sectionOrder.some(s => s.type === 'skills' && s.visible) && <p className="text-xs mb-2">Skills is hidden. Adding a term there will not improve visible keyword overlap until you enable that section.</p>}
               <div className="flex flex-wrap gap-1">
                 {jdMatchResult.missingKeywords.map(kw => (
                   <button
                     key={kw}
                     type="button"
+                    aria-label={`Add ${kw} to Skills only if accurate`}
+                    disabled={resumeData.sections.skills.some(s => s.skills.split(',').some(value => value.trim().toLowerCase() === kw.toLowerCase()))}
                     onClick={() => addKeyword(kw)}
-                    className={`text-[10px] px-1.5 py-0.5 rounded flex items-center gap-0.5 transition-colors ${
+                    className={`text-[10px] px-1.5 py-0.5 rounded flex items-center gap-0.5 transition-colors disabled:opacity-40 ${
                       darkMode
                         ? 'bg-red-900/40 text-red-300 hover:bg-red-900/70'
                         : 'bg-red-100 text-red-800 hover:bg-red-200'

@@ -3,28 +3,16 @@ import {
   Packer,
   Paragraph,
   TextRun,
-  HeadingLevel,
   AlignmentType,
   BorderStyle,
-  TableRow,
-  TableCell,
-  Table,
-  WidthType,
-  Header as DocxHeader,
 } from 'docx';
 import { ResumeData } from '../types/resume';
-
-function sep(): Paragraph {
-  return new Paragraph({
-    border: { bottom: { style: BorderStyle.SINGLE, size: 6, color: '333333' } },
-    spacing: { after: 100 },
-  });
-}
 
 function sectionHeading(text: string): Paragraph {
   return new Paragraph({
     children: [new TextRun({ text: text.toUpperCase(), bold: true, size: 24, color: '1C033C' })],
     spacing: { before: 200, after: 60 },
+    keepNext: true,
     border: { bottom: { style: BorderStyle.SINGLE, size: 4, color: '1C033C' } },
   });
 }
@@ -40,14 +28,14 @@ function bullet(text: string): Paragraph {
 function kv(label: string, value: string): Paragraph {
   return new Paragraph({
     children: [
-      new TextRun({ text: label + ': ', bold: true, size: 20 }),
+      new TextRun({ text: label ? label + ': ' : '', bold: true, size: 20 }),
       new TextRun({ text: value, size: 20 }),
     ],
     spacing: { after: 40 },
   });
 }
 
-export async function exportDOCX(data: ResumeData): Promise<void> {
+export function buildDOCX(data: ResumeData): Document {
   const { personalInfo, sections, sectionOrder } = data;
 
   const children: Paragraph[] = [];
@@ -135,6 +123,7 @@ export async function exportDOCX(data: ResumeData): Promise<void> {
             spacing: { after: edu.coursework ? 20 : 80 },
           }));
           if (edu.coursework) children.push(kv('Coursework', edu.coursework));
+          if (edu.honors) children.push(kv('Honors', edu.honors));
           children.push(new Paragraph({ spacing: { after: 60 } }));
         }
         break;
@@ -143,7 +132,7 @@ export async function exportDOCX(data: ResumeData): Promise<void> {
         if (sections.skills.length === 0) break;
         children.push(sectionHeading(section.name));
         for (const s of sections.skills) {
-          if (s.category && s.skills) children.push(kv(s.category, s.skills));
+          if (s.skills.trim()) children.push(kv(s.category.trim(), s.skills));
         }
         children.push(new Paragraph({ spacing: { after: 60 } }));
         break;
@@ -175,6 +164,8 @@ export async function exportDOCX(data: ResumeData): Promise<void> {
             spacing: { after: 20 },
           }));
           if (aw.description) children.push(new Paragraph({ children: [new TextRun({ text: aw.description, size: 20 })], spacing: { after: 60 } }));
+          if (aw.issuer) children.push(kv('Issuer', aw.issuer));
+          if (aw.date) children.push(kv('Date', aw.date));
         }
         break;
 
@@ -190,6 +181,8 @@ export async function exportDOCX(data: ResumeData): Promise<void> {
             spacing: { after: 20 },
           }));
           if (cert.date) children.push(new Paragraph({ children: [new TextRun({ text: cert.date, size: 18, italics: true, color: '777777' })], spacing: { after: 60 } }));
+          if (cert.expiryDate) children.push(kv('Expires', cert.expiryDate));
+          if (cert.credentialId) children.push(kv('Credential ID', cert.credentialId));
         }
         break;
 
@@ -206,18 +199,21 @@ export async function exportDOCX(data: ResumeData): Promise<void> {
     }
   }
 
-  const doc = new Document({
+  return new Document({
     sections: [{ children }],
     styles: {
       default: {
         document: {
           run: { font: data.styling.fontFamily || 'Calibri', size: 20 },
+          paragraph: { keepLines: true },
         },
       },
     },
   });
+}
 
-  const blob = await Packer.toBlob(doc);
+export async function exportDOCX(data: ResumeData): Promise<void> {
+  const blob = await Packer.toBlob(buildDOCX(data));
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
@@ -226,7 +222,7 @@ export async function exportDOCX(data: ResumeData): Promise<void> {
   URL.revokeObjectURL(url);
 }
 
-export function exportTXT(data: ResumeData): void {
+export function buildTXT(data: ResumeData): string {
   const { personalInfo, sections, sectionOrder } = data;
   const lines: string[] = [];
 
@@ -269,6 +265,7 @@ export function exportTXT(data: ResumeData): void {
           lines.push(`${edu.degree} in ${edu.field}${edu.gpa ? ' | GPA: ' + edu.gpa : ''}`);
           lines.push(`${edu.startDate} - ${edu.endDate}`);
           if (edu.coursework) lines.push(`Coursework: ${edu.coursework}`);
+          if (edu.honors) lines.push(`Honors: ${edu.honors}`);
           lines.push('');
         }
         break;
@@ -277,7 +274,7 @@ export function exportTXT(data: ResumeData): void {
         lines.push(section.name.toUpperCase());
         lines.push('-'.repeat(40));
         for (const s of sections.skills) {
-          if (s.category && s.skills) lines.push(`${s.category}: ${s.skills}`);
+          if (s.skills.trim()) lines.push(s.category.trim() ? `${s.category}: ${s.skills}` : s.skills);
         }
         lines.push('');
         break;
@@ -289,6 +286,7 @@ export function exportTXT(data: ResumeData): void {
           lines.push(`${proj.title}${proj.year ? ' (' + proj.year + ')' : ''}`);
           if (proj.description) lines.push(proj.description);
           if (proj.technologies) lines.push(`Technologies: ${proj.technologies}`);
+          if (proj.url) lines.push(`URL: ${proj.url}`);
           lines.push('');
         }
         break;
@@ -298,6 +296,8 @@ export function exportTXT(data: ResumeData): void {
         lines.push('-'.repeat(40));
         for (const aw of sections.awards) {
           lines.push(aw.title);
+          if (aw.issuer) lines.push(`Issuer: ${aw.issuer}`);
+          if (aw.date) lines.push(`Date: ${aw.date}`);
           if (aw.description) lines.push(aw.description);
           lines.push('');
         }
@@ -308,13 +308,30 @@ export function exportTXT(data: ResumeData): void {
         lines.push('-'.repeat(40));
         for (const cert of sections.certifications) {
           lines.push(`${cert.name} - ${cert.issuer} (${cert.date})`);
+          if (cert.expiryDate) lines.push(`Expires: ${cert.expiryDate}`);
+          if (cert.credentialId) lines.push(`Credential ID: ${cert.credentialId}`);
         }
         lines.push('');
         break;
+      case 'custom': {
+        const cs = sections.custom.find(c => c.id === section.id);
+        if (!cs || !cs.entries.length) break;
+        lines.push(cs.name.toUpperCase(), '-'.repeat(40));
+        for (const entry of cs.entries) {
+          if (entry.title) lines.push(entry.title);
+          if (entry.content) lines.push(entry.content);
+          lines.push('');
+        }
+        break;
+      }
     }
   }
 
-  const blob = new Blob([lines.join('\n')], { type: 'text/plain' });
+  return lines.join('\n');
+}
+
+export function exportTXT(data: ResumeData): void {
+  const blob = new Blob([buildTXT(data)], { type: 'text/plain;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;

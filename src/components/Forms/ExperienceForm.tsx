@@ -1,8 +1,9 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+import { useStore } from 'react-redux';
 import { Plus, Trash2, ChevronDown, ChevronUp, Sparkles, Loader, Wand2 } from 'lucide-react';
 import { useAppSelector, useAppDispatch } from '../../hooks';
 import { addExperience, updateExperience, removeExperience } from '../../store/resumeSlice';
-import { ExperienceEntry } from '../../types/resume';
+import { ExperienceEntry, ResumeState } from '../../types/resume';
 import { rewriteBulletWithAI } from '../../utils/atsUtils';
 import { humanizeAIError } from '../../utils/aiErrors';
 import { analyzeBullet, quickFixBullet, experienceWritingScore } from '../../utils/bulletCoach';
@@ -23,17 +24,26 @@ const badgeColor = (type: string, dark: boolean) => {
 
 const ExperienceForm: React.FC = () => {
   const dispatch = useAppDispatch();
-  const experiences = useAppSelector(state => state.resume.data.sections.experience);
+  const store = useStore<{ resume: ResumeState }>();
+  const resumeData = useAppSelector(state => state.resume.data);
+  const resumeId = useAppSelector(state => state.resume.activeResumeId);
+  const experiences: ExperienceEntry[] = useAppSelector(state => state.resume.data.sections.experience);
   const aiSettings = useAppSelector(state => state.resume.settings.ai);
   const darkMode = useAppSelector(state => state.resume.settings.darkMode);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [rewriting, setRewriting] = useState<Record<string, boolean>>({});
   const [aiNotice, setAiNotice] = useState<string | null>(null);
+  const [preview, setPreview] = useState<{ expId: string; idx: number; original: string; text: string; source: ResumeState; kind: string } | null>(null);
+  const generation = useRef(0);
+  useEffect(() => {
+    const token = generation;
+    setPreview(null);
+    setRewriting({});
+    setAiNotice(null);
+    return () => { token.current++; };
+  }, [resumeData, resumeId, aiSettings]);
 
-  const allAchievements = useMemo(
-    () => experiences.flatMap(e => e.achievements),
-    [experiences]
-  );
+  const allAchievements = experiences.flatMap(e => e.achievements);
   const writing = experienceWritingScore(allAchievements);
 
   const update = (id: string, data: Partial<ExperienceEntry>) => dispatch(updateExperience({ id, data }));
@@ -63,7 +73,10 @@ const ExperienceForm: React.FC = () => {
     const bullet = exp.achievements[idx];
     if (!bullet.trim()) return;
     const key = `${expId}-${idx}`;
+    const source = store.getState().resume;
+    const requestGeneration = generation.current;
     setRewriting(p => ({ ...p, [key]: true }));
+    setPreview(null);
     setAiNotice(null);
     try {
       const rewritten = await rewriteBulletWithAI(
@@ -71,28 +84,13 @@ const ExperienceForm: React.FC = () => {
         { position: exp.position, company: exp.company },
         aiSettings
       );
-      const achievements = [...exp.achievements];
-      achievements[idx] = rewritten;
-      update(expId, { achievements });
-      if (aiSettings.provider !== 'none' && aiSettings.apiKey) {
-        // soft note when provider is on (rule-based may still have been used on failure inside helper)
-      }
+      const current = store.getState().resume;
+      if (requestGeneration !== generation.current || current.data !== source.data || current.activeResumeId !== source.activeResumeId || current.settings.ai !== source.settings.ai) return;
+      setPreview({ expId, idx, original: bullet, text: rewritten, source, kind: aiSettings.provider === 'none' ? 'Local cleanup' : 'AI suggestion' });
     } catch (err) {
-      setAiNotice(humanizeAIError(err) + ' Using rule-based rewrite when possible.');
-      try {
-        const rewritten = await rewriteBulletWithAI(
-          bullet,
-          { position: exp.position, company: exp.company },
-          { provider: 'none', apiKey: '' }
-        );
-        const achievements = [...exp.achievements];
-        achievements[idx] = rewritten;
-        update(expId, { achievements });
-      } catch {
-        /* ignore */
-      }
+      if (requestGeneration === generation.current) setAiNotice(humanizeAIError(err) + ' No changes were made. You can use local cleanup separately.');
     } finally {
-      setRewriting(p => ({ ...p, [key]: false }));
+      if (requestGeneration === generation.current) setRewriting(p => ({ ...p, [key]: false }));
     }
   };
 
@@ -100,9 +98,22 @@ const ExperienceForm: React.FC = () => {
     const exp = experiences.find(e => e.id === expId)!;
     const bullet = exp.achievements[idx];
     if (!bullet.trim()) return;
+    setPreview({ expId, idx, original: bullet, text: quickFixBullet(bullet), source: store.getState().resume, kind: 'Local cleanup' });
+  };
+
+  const acceptPreview = () => {
+    if (!preview) return;
+    const current = store.getState().resume;
+    const exp = current.data.sections.experience.find(e => e.id === preview.expId);
+    if (current.activeResumeId !== preview.source.activeResumeId || current.data !== preview.source.data || current.settings.ai !== preview.source.settings.ai || exp?.achievements[preview.idx] !== preview.original) {
+      setPreview(null);
+      setAiNotice('The resume or source changed. Generate a new suggestion before accepting.');
+      return;
+    }
     const achievements = [...exp.achievements];
-    achievements[idx] = quickFixBullet(bullet);
-    update(expId, { achievements });
+    achievements[preview.idx] = preview.text;
+    update(preview.expId, { achievements });
+    setPreview(null);
   };
 
   const inputCls = `w-full px-3 py-2 rounded-lg border text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-colors ${
@@ -146,7 +157,7 @@ const ExperienceForm: React.FC = () => {
       </div>
 
       {aiNotice && (
-        <div className={`text-xs rounded-lg px-3 py-2 ${darkMode ? 'bg-amber-900/40 text-amber-200' : 'bg-amber-50 text-amber-900'}`}>
+        <div role="status" className={`text-xs rounded-lg px-3 py-2 ${darkMode ? 'bg-amber-900/40 text-amber-200' : 'bg-amber-50 text-amber-900'}`}>
           {aiNotice}
         </div>
       )}
@@ -163,7 +174,7 @@ const ExperienceForm: React.FC = () => {
       {experiences.map((exp, expIdx) => (
         <div key={exp.id} className={cardCls}>
           <div className="flex items-start justify-between gap-2">
-            <button onClick={() => toggleCollapse(exp.id)} className="flex-1 text-left">
+            <button aria-expanded={!collapsed[exp.id]} onClick={() => toggleCollapse(exp.id)} className="flex-1 text-left">
               <div className={`font-semibold text-sm ${darkMode ? 'text-white' : 'text-gray-900'}`}>
                 {exp.position || exp.company || `Experience ${expIdx + 1}`}
               </div>
@@ -174,10 +185,11 @@ const ExperienceForm: React.FC = () => {
               )}
             </button>
             <div className="flex items-center gap-1">
-              <button onClick={() => toggleCollapse(exp.id)} className={`p-1.5 rounded-lg ${darkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-200'}`}>
+              <button aria-label={`${collapsed[exp.id] ? 'Expand' : 'Collapse'} experience ${expIdx + 1}`} aria-expanded={!collapsed[exp.id]} onClick={() => toggleCollapse(exp.id)} className={`p-1.5 rounded-lg ${darkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-200'}`}>
                 {collapsed[exp.id] ? <ChevronDown className="h-4 w-4" /> : <ChevronUp className="h-4 w-4" />}
               </button>
               <button
+                aria-label={`Remove experience ${expIdx + 1}`}
                 onClick={() => dispatch(removeExperience(exp.id))}
                 className="p-1.5 rounded-lg text-red-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
               >
@@ -191,23 +203,23 @@ const ExperienceForm: React.FC = () => {
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className={labelCls}>Company *</label>
-                  <input className={inputCls} value={exp.company} onChange={e => update(exp.id, { company: e.target.value })} placeholder="Google" />
+                  <input aria-label="Company" className={inputCls} value={exp.company} onChange={e => update(exp.id, { company: e.target.value })} placeholder="Google" />
                 </div>
                 <div>
                   <label className={labelCls}>Job Title *</label>
-                  <input className={inputCls} value={exp.position} onChange={e => update(exp.id, { position: e.target.value })} placeholder="Software Engineer" />
+                  <input aria-label="Job title" className={inputCls} value={exp.position} onChange={e => update(exp.id, { position: e.target.value })} placeholder="Software Engineer" />
                 </div>
                 <div>
                   <label className={labelCls}>Location</label>
-                  <input className={inputCls} value={exp.location} onChange={e => update(exp.id, { location: e.target.value })} placeholder="Mountain View, CA" />
+                  <input aria-label="Job location" className={inputCls} value={exp.location} onChange={e => update(exp.id, { location: e.target.value })} placeholder="Mountain View, CA" />
                 </div>
                 <div>
                   <label className={labelCls}>Start Date</label>
-                  <input className={inputCls} type="month" value={exp.startDate} onChange={e => update(exp.id, { startDate: e.target.value })} />
+                  <input aria-label="Start date" className={inputCls} type="month" value={exp.startDate} onChange={e => update(exp.id, { startDate: e.target.value })} />
                 </div>
                 <div>
                   <label className={labelCls}>End Date</label>
-                  <input className={inputCls} type="month" value={exp.endDate} onChange={e => update(exp.id, { endDate: e.target.value })} disabled={exp.current} />
+                  <input aria-label="End date" className={inputCls} type="month" value={exp.endDate} onChange={e => update(exp.id, { endDate: e.target.value })} disabled={exp.current} />
                 </div>
                 <div className="flex items-center gap-2 pt-5">
                   <input
@@ -239,6 +251,7 @@ const ExperienceForm: React.FC = () => {
                         <div className="flex gap-2 items-start">
                           <span className={`text-sm pt-2.5 flex-shrink-0 ${darkMode ? 'text-gray-500' : 'text-gray-400'}`}>•</span>
                           <textarea
+                            aria-label={`Achievement ${i + 1} for experience ${expIdx + 1}`}
                             className={`${inputCls} resize-none flex-1`}
                             rows={2}
                             value={ach}
@@ -250,7 +263,8 @@ const ExperienceForm: React.FC = () => {
                               <button
                                 type="button"
                                 onClick={() => applyQuickFix(exp.id, i)}
-                                title="Quick fix (rule-based)"
+                                title="Preview local whitespace cleanup"
+                                aria-label={`Preview local cleanup for achievement ${i + 1}`}
                                 className={`p-1.5 rounded-lg transition-colors ${
                                   darkMode
                                     ? 'bg-amber-900/40 text-amber-200 hover:bg-amber-900/70'
@@ -264,7 +278,8 @@ const ExperienceForm: React.FC = () => {
                               type="button"
                               onClick={() => rewriteBullet(exp.id, i)}
                               disabled={rewriting[key] || !ach.trim()}
-                              title="AI rewrite (or rule-based if AI off)"
+                              title={aiSettings.provider === 'none' ? 'Preview local cleanup' : 'Preview AI rewrite'}
+                              aria-label={`Preview ${aiSettings.provider === 'none' ? 'local cleanup' : 'AI rewrite'} for achievement ${i + 1}`}
                               className="p-1.5 rounded-lg bg-indigo-50 text-indigo-600 hover:bg-indigo-100 disabled:opacity-40 transition-colors"
                             >
                               {rewriting[key] ? (
@@ -275,6 +290,7 @@ const ExperienceForm: React.FC = () => {
                             </button>
                             <button
                               type="button"
+                              aria-label={`Remove achievement ${i + 1}`}
                               onClick={() => removeAchievement(exp.id, i)}
                               className="p-1.5 rounded-lg text-red-400 hover:bg-red-50 transition-colors"
                             >
@@ -282,19 +298,33 @@ const ExperienceForm: React.FC = () => {
                             </button>
                           </div>
                         </div>
+                        {preview && preview.expId === exp.id && preview.idx === i && preview.source.data === resumeData && preview.source.activeResumeId === resumeId && (
+                          <div role="region" aria-label="Rewrite preview" className={`mt-2 p-3 rounded-lg border space-y-2 ${darkMode ? 'border-indigo-700 text-gray-200' : 'border-indigo-200 text-gray-800'}`}>
+                            <p className="text-xs font-semibold">{preview.kind}. Verify every claim before accepting.</p>
+                            <p className="text-xs">Original: {preview.original}</p>
+                            <p className="text-sm">Suggestion: {preview.text}</p>
+                            {preview.text === preview.original && <p className="text-xs">No safe automatic change found. Add context or verified outcomes manually.</p>}
+                            <div className="flex gap-3">
+                              <button type="button" disabled={preview.text === preview.original} onClick={acceptPreview} className="text-sm text-indigo-500 disabled:opacity-40">Accept suggestion</button>
+                              <button type="button" onClick={() => setPreview(null)} className="text-sm">Discard suggestion</button>
+                            </div>
+                          </div>
+                        )}
                         {issues.length > 0 && (
                           <div className="ml-5 mt-1.5 flex flex-wrap gap-1.5 items-center">
                             {issues.map(iss => (
                               <span
                                 key={iss.type}
                                 title={iss.suggestion}
+                                tabIndex={0}
+                                aria-label={`${iss.label}: ${iss.suggestion}`}
                                 className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${badgeColor(iss.type, darkMode)}`}
                               >
                                 {iss.label}
                               </span>
                             ))}
                             <span className={`text-[10px] ${darkMode ? 'text-gray-500' : 'text-gray-400'}`}>
-                              Hover badge · wand = quick fix
+                              Badge = advice; wand = local cleanup preview
                             </span>
                           </div>
                         )}
@@ -318,6 +348,7 @@ const ExperienceForm: React.FC = () => {
               <div>
                 <label className={labelCls}>Technologies / Tools Used</label>
                 <input
+                  aria-label="Technologies and tools used"
                   className={inputCls}
                   value={exp.technologies || ''}
                   onChange={e => update(exp.id, { technologies: e.target.value })}
